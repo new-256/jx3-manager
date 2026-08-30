@@ -45,6 +45,11 @@ class BaizhanAPI:
         config = get_cached_config()
         self.api_key = config.get("api_key", "").strip()
         self._auto_fetched = set()  # 进程内已自动同步过的文件路径集合
+
+    def reload_config(self):
+        """重新从配置文件中加载 API Key"""
+        config = get_cached_config()
+        self.api_key = config.get("api_key", "").strip()
     
     def _get(self, endpoint, params=None):
         if not self.api_key or self.api_key in ("your_api_key_here", ""):

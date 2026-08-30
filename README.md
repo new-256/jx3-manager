@@ -48,6 +48,7 @@ pip install -r requirements.txt
 ### 配置注意事项
 
 - 游戏路径 `GAME_PATH` 和 jx3api 的 token 统一保存在 `JX3Manager/config.json` 中（该文件含私人 token，已在 `.gitignore` 排除）。
+- 首次启动会自动检测剑网3安装路径（注册表+常见位置），也可在配置窗口手动浏览或重新检测。
 - 首次运行桌面版 (`gui_qt.py` / `gui.py`) 时，会自动弹出配置窗口引导你完成设置。
 - **请勿**将包含你私人 Token 的 `config.json` 外传。
 

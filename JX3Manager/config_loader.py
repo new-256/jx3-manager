@@ -18,8 +18,10 @@ def load_config():
     return DEFAULT_CONFIG.copy()
 
 def save_config(config):
+    global __config
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
+    __config = config.copy()
 
 def validate_config(config):
     errors = []

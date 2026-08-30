@@ -15,8 +15,8 @@ from PyQt6.QtWidgets import (
     QFileDialog, QMessageBox, QToolTip, QGridLayout, QSizePolicy, QCheckBox, QDoubleSpinBox, QGroupBox, QStackedWidget, QInputDialog, QTextEdit,
     QAbstractItemView
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QSettings
-from PyQt6.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QCursor, QBrush
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QSettings, QUrl
+from PyQt6.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QCursor, QBrush, QDesktopServices
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -24,9 +24,18 @@ from main import JX3Manager, get_boss_aliases, get_floors_for_skill_boss, ANOMAL
 from readers.plugin_settings import enable_all_stats
 from combat_log_config import enable_combat_logs_for_all
 from config_loader import get_cached_config, save_config, validate_config
+from path_detector import detect_game_path, is_valid_game_path
 from logger import get_logger
 
 logger = get_logger("gui_qt")
+
+APP_ICON_PATH = os.path.join(os.path.dirname(__file__), "resources", "app_icon.png")
+
+def get_app_icon():
+    """获取应用图标，文件不存在时返回空的 QIcon"""
+    if os.path.exists(APP_ICON_PATH):
+        return QIcon(APP_ICON_PATH)
+    return QIcon()
 
 # 百战"全清"判定阈值：击杀数达到 12 即视为全清（本周排班满轮换 12 个首领）
 BAIZHAN_CLEARED_THRESHOLD = 12
@@ -303,13 +312,16 @@ class ConfigDialog(QDialog):
         super().__init__(parent)
         self.config = config
         self.setWindowTitle("剑3小助手 - 基础配置")
-        self.resize(520, 240)
+        self.resize(540, 290)
         self.setStyleSheet(DARK_QSS)
+        icon = get_app_icon()
+        if not icon.isNull():
+            self.setWindowIcon(icon)
         self.init_ui()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setSpacing(12)
+        layout.setSpacing(10)
 
         title = QLabel("请设置剑网3客户端路径及 API Token：")
         title.setStyleSheet("font-size: 14px; font-weight: bold; color: #3b8ed0;")
@@ -317,18 +329,41 @@ class ConfigDialog(QDialog):
 
         # Game Path
         layout.addWidget(QLabel("游戏根目录 (例如 D:\\JX3_Classic):"))
+        tip_path = QLabel("提示：应填到 ...\\bin\\zhcn_hd\\interface 层（即包含 my#data 的目录）")
+        tip_path.setStyleSheet("font-size: 11px; color: #8888aa;")
+        layout.addWidget(tip_path)
+
         path_layout = QHBoxLayout()
+        path_layout.setSpacing(8)
         self.path_input = QLineEdit(self.config.get("game_path", ""))
+        self.path_input.textChanged.connect(self.on_path_changed)
+        btn_detect = QPushButton("🔍 自动检测")
+        btn_detect.clicked.connect(self.run_detection)
         btn_browse = QPushButton("浏览...")
         btn_browse.clicked.connect(self.browse_path)
         path_layout.addWidget(self.path_input)
+        path_layout.addWidget(btn_detect)
         path_layout.addWidget(btn_browse)
         layout.addLayout(path_layout)
 
+        # 检测状态行
+        self.lbl_detect_status = QLabel("")
+        self.lbl_detect_status.setStyleSheet("font-size: 11px; color: #8888aa;")
+        layout.addWidget(self.lbl_detect_status)
+
         # API Key
         layout.addWidget(QLabel("JX3API Token:"))
+        token_box = QHBoxLayout()
+        token_box.setSpacing(8)
         self.token_input = QLineEdit(self.config.get("api_key", ""))
-        layout.addWidget(self.token_input)
+        self.token_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.btn_toggle_token = QPushButton("👁 显示")
+        self.btn_toggle_token.setFixedWidth(75)
+        self.btn_toggle_token.setToolTip("切换密文/明文显示")
+        self.btn_toggle_token.clicked.connect(self.toggle_token_visibility)
+        token_box.addWidget(self.token_input)
+        token_box.addWidget(self.btn_toggle_token)
+        layout.addLayout(token_box)
 
         # Buttons
         btn_layout = QHBoxLayout()
@@ -339,9 +374,61 @@ class ConfigDialog(QDialog):
         btn_layout.addWidget(btn_save)
         layout.addLayout(btn_layout)
 
+        # 初始检测与状态提示
+        curr_p = self.path_input.text().strip()
+        if is_valid_game_path(curr_p):
+            self.set_status_success("✓ 当前游戏路径有效")
+        else:
+            self.run_detection()
+
+    def set_status_success(self, text):
+        self.lbl_detect_status.setText(text)
+        self.lbl_detect_status.setStyleSheet("font-size: 11px; color: #44cc44;")
+
+    def set_status_fail(self, text):
+        self.lbl_detect_status.setText(text)
+        self.lbl_detect_status.setStyleSheet("font-size: 11px; color: #8888aa;")
+
+    def on_path_changed(self, text):
+        p = text.strip()
+        if is_valid_game_path(p):
+            self.set_status_success("✓ 当前游戏路径有效（含 my#data）")
+        elif p and os.path.exists(p):
+            derived, _ = detect_game_path(p)
+            if derived:
+                self.lbl_detect_status.setText("提示：可推导至有效路径")
+                self.lbl_detect_status.setStyleSheet("font-size: 11px; color: #ffaa00;")
+            else:
+                self.set_status_fail("未自动检测到，请手动浏览选择")
+        elif not p:
+            self.set_status_fail("未自动检测到，请手动浏览选择")
+        else:
+            self.set_status_fail("未自动检测到，请手动浏览选择")
+
+    def run_detection(self):
+        curr = self.path_input.text().strip()
+        detected, source = detect_game_path(curr if curr else None)
+        if detected:
+            self.path_input.setText(detected)
+            self.set_status_success(f"✓ 已自动检测到游戏路径（来源：{source}）")
+        else:
+            self.set_status_fail("未自动检测到，请手动浏览选择")
+
+    def toggle_token_visibility(self):
+        if self.token_input.echoMode() == QLineEdit.EchoMode.Password:
+            self.token_input.setEchoMode(QLineEdit.EchoMode.Normal)
+            self.btn_toggle_token.setText("🙈 隐藏")
+        else:
+            self.token_input.setEchoMode(QLineEdit.EchoMode.Password)
+            self.btn_toggle_token.setText("👁 显示")
+
     def browse_path(self):
         dir_path = QFileDialog.getExistingDirectory(self, "选择剑网3安装目录")
         if dir_path:
+            if not is_valid_game_path(dir_path):
+                derived, _ = detect_game_path(dir_path)
+                if derived:
+                    dir_path = derived
             self.path_input.setText(dir_path)
 
     def save(self):
@@ -350,9 +437,127 @@ class ConfigDialog(QDialog):
         if not gpath or not os.path.exists(gpath):
             QMessageBox.warning(self, "提示", "请选择有效的剑网3游戏目录！")
             return
+        if not is_valid_game_path(gpath):
+            derived, _ = detect_game_path(gpath)
+            if derived:
+                gpath = derived
+                self.path_input.setText(gpath)
         self.config["game_path"] = gpath
         self.config["api_key"] = key
         save_config(self.config)
+        self.accept()
+
+
+class ApiConfigDialog(QDialog):
+    """查看或修改 JX3API Token 的配置对话框"""
+    def __init__(self, config, parent=None):
+        super().__init__(parent)
+        self.config = config
+        self.token_modified = False
+        self.setWindowTitle("API 设置")
+        self.resize(480, 230)
+        self.setStyleSheet(DARK_QSS)
+        icon = get_app_icon()
+        if not icon.isNull():
+            self.setWindowIcon(icon)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(18, 18, 18, 18)
+
+        title = QLabel("🔑 JX3API Token 设置")
+        title.setStyleSheet("font-size: 15px; font-weight: bold; color: #3b8ed0;")
+        layout.addWidget(title)
+
+        # 提示与获取链接
+        desc_lbl = QLabel("用于在线获取百战周排班、精耐招式及活动日历。")
+        desc_lbl.setStyleSheet("color: #b0b0cc; font-size: 12px;")
+        layout.addWidget(desc_lbl)
+
+        link_lbl = QLabel('Token 获取地址：<a href="https://www.jx3api.com" style="color: #64b5f6; text-decoration: underline;">https://www.jx3api.com</a>')
+        link_lbl.setOpenExternalLinks(True)
+        link_lbl.setStyleSheet("font-size: 12px;")
+        layout.addWidget(link_lbl)
+
+        # Token 输入与显隐切换
+        token_header = QLabel("JX3API Token:")
+        token_header.setStyleSheet("color: #e0e0e0; font-size: 12px; font-weight: bold;")
+        layout.addWidget(token_header)
+
+        token_box = QHBoxLayout()
+        token_box.setSpacing(8)
+        self.token_input = QLineEdit(self.config.get("api_key", ""))
+        self.token_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.token_input.setPlaceholderText("请输入 JX3API Token (如 jx3api::...)")
+
+        self.btn_toggle_token = QPushButton("👁 显示")
+        self.btn_toggle_token.setFixedWidth(75)
+        self.btn_toggle_token.setToolTip("切换密文/明文显示")
+        self.btn_toggle_token.clicked.connect(self.toggle_token_visibility)
+
+        token_box.addWidget(self.token_input)
+        token_box.addWidget(self.btn_toggle_token)
+        layout.addLayout(token_box)
+
+        layout.addStretch()
+
+        # 操作按钮
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
+        btn_layout.addStretch()
+
+        btn_cancel = QPushButton("取消")
+        btn_cancel.clicked.connect(self.reject)
+        btn_layout.addWidget(btn_cancel)
+
+        btn_save = QPushButton("保存")
+        btn_save.setObjectName("PrimaryBtn")
+        btn_save.clicked.connect(self.save)
+        btn_layout.addWidget(btn_save)
+
+        layout.addLayout(btn_layout)
+
+    def toggle_token_visibility(self):
+        if self.token_input.echoMode() == QLineEdit.EchoMode.Password:
+            self.token_input.setEchoMode(QLineEdit.EchoMode.Normal)
+            self.btn_toggle_token.setText("🙈 隐藏")
+        else:
+            self.token_input.setEchoMode(QLineEdit.EchoMode.Password)
+            self.btn_toggle_token.setText("👁 显示")
+
+    def save(self):
+        new_token = self.token_input.text().strip()
+        old_token = (self.config.get("api_key") or "").strip()
+
+        if new_token == old_token:
+            QMessageBox.information(self, "提示", "Token 未修改")
+            self.accept()
+            return
+
+        confirm = QMessageBox.question(
+            self,
+            "确认修改",
+            "修改后立即生效，会影响百战排班/日历/精耐等在线功能，确认修改？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        # 更新配置
+        self.config["api_key"] = new_token
+        save_config(self.config)
+
+        # 运行时同步
+        try:
+            from readers.baizhan_api import api as bz_api
+            bz_api.api_key = new_token
+        except Exception as e:
+            logger.warning(f"同步运行时 API Token 失败: {e}")
+
+        self.token_modified = True
         self.accept()
 
 
@@ -2097,8 +2302,11 @@ class MainWindow(QMainWindow):
         self._active_workers = set()
         self.skill_descs_map = load_skill_descriptions()
 
-        self.setWindowTitle("剑网3 多角色周常管理助手 (PyQt6 极速版)")
+        self.setWindowTitle("剑网3 多角色周常管理助手 v1.0")
         self.setStyleSheet(DARK_QSS)
+        icon = get_app_icon()
+        if not icon.isNull():
+            self.setWindowIcon(icon)
 
         self.init_ui()
         self.refresh_data()
@@ -2133,7 +2341,7 @@ class MainWindow(QMainWindow):
             if thread.isRunning():
                 thread.quit()
                 thread.wait(1000)
-        event.accept()
+            event.accept()
 
     def init_ui(self):
         main_widget = QWidget()
@@ -2193,6 +2401,11 @@ class MainWindow(QMainWindow):
         btn_bz.setToolTip("点击打开独立的百战招式面板弹窗，查阅全角色百战精耐与招式细节")
         btn_bz.clicked.connect(lambda: self.open_baizhan_skills_dialog())
         tb_row1.addWidget(btn_bz)
+
+        self.btn_api_config = QPushButton("🔑 API 设置")
+        self.btn_api_config.setToolTip("查看或修改 JX3API Token（修改需二次确认）")
+        self.btn_api_config.clicked.connect(self.open_api_config_dialog)
+        tb_row1.addWidget(self.btn_api_config)
 
         tb_row1.addStretch()
         tb_main_layout.addLayout(tb_row1)
@@ -3469,19 +3682,44 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "错误", f"导出 CSV 失败: {e}")
 
+    def open_api_config_dialog(self):
+        config = get_cached_config()
+        dlg = ApiConfigDialog(config, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and getattr(dlg, "token_modified", False):
+            self.statusBar().showMessage("✓ API Token 已更新", 4000)
+
 
 def main():
     app = QApplication(sys.argv)
+    icon = get_app_icon()
+    if not icon.isNull():
+        app.setWindowIcon(icon)
     
-    # Configuration Check
+    # Configuration Check & Auto Detection / Self-Healing
     config = get_cached_config()
-    if validate_config(config):
+    current_gp = config.get("game_path", "")
+    auto_detect_msg = None
+
+    # 1. 若路径未配置、不存在、或存在但缺少 my#data（用户填浅/游戏搬家），尝试自动探测与自愈
+    if not current_gp or not os.path.exists(current_gp) or not is_valid_game_path(current_gp):
+        detected_path, source = detect_game_path(current_gp if current_gp else None)
+        if detected_path:
+            config["game_path"] = detected_path
+            save_config(config)
+            auto_detect_msg = f"已自动检测并配置游戏路径: {detected_path} (来源: {source})"
+            logger.info(auto_detect_msg)
+
+    # 2. 校验配置；若仍不满足（如 api_key 缺失或未检测到有效路径）则弹出配置引导弹窗
+    if validate_config(config) or not is_valid_game_path(config.get("game_path", "")):
         dlg = ConfigDialog(config)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             sys.exit(0)
+        config = get_cached_config()
             
     mgr = JX3Manager()
     win = MainWindow(mgr)
+    if auto_detect_msg:
+        win.statusBar().showMessage(auto_detect_msg, 6000)
     win.show()
     sys.exit(app.exec())
 
