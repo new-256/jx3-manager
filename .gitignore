@@ -1,0 +1,43 @@
+# ===== Secrets / personal config =====
+# 包含私人 jx3api token 与本机游戏路径，切勿提交
+JX3Manager/config.json
+
+# ===== Python runtime =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# ===== Runtime data (个人游戏数据缓存，每人不同) =====
+JX3Manager/logs/
+JX3Manager/data/cache/
+JX3Manager/data/bz_cache/
+JX3Manager/data/export.json
+JX3Manager/data/export.csv
+JX3Manager/export/
+
+# 个人游戏数据（角色备注 / 换将点数 / 修罗校正是个人数据）
+JX3Manager/data/char_notes.json
+JX3Manager/data/huanjiang_points.json
+JX3Manager/data/xiuluo_override.json
+JX3Manager/data/dungeon_names_learned.json
+
+# ===== Temp / scratch =====
+*.log
+stderr.txt
+stdout.txt
+gui_err.log
+gui_out.log
+*.tmp
+Thumbs.db
+Desktop.ini
+
+# ===== OS / IDE =====
+.DS_Store
+.idea/
+.vscode/
+
+# ===== UI 截图（含个人角色信息，不入库）=====
+/*.png

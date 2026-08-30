@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JX3 多角色管理器 v3.0</title>
+<style>
+:root {
+  --bg: #0d1117; --surface: #161b22; --border: #30363d;
+  --text: #c9d1d9; --dim: #8b949e; --accent: #58a6ff;
+  --green: #3fb950; --yellow: #d2991d; --red: #f85149;
+  --purple: #a371f7; --orange: #d2753b;
+  --bg-image: none; --bg-size: cover; --bg-pos: center;
+  --card-bg: rgba(22,27,34,0.92);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background-color: var(--bg);
+  background-image: var(--bg-image);
+  background-size: var(--bg-size);
+  background-position: var(--bg-pos);
+  background-attachment: fixed;
+  color: var(--text); height:100vh; display:flex; flex-direction:column; overflow:hidden;
+}
+body::before {
+  content: ''; position:fixed; top:0;left:0;right:0;bottom:0;
+  background: var(--bg);
+  opacity: var(--bg-opacity, 1);
+  z-index:-1;
+}
+.header { display:flex; align-items:center; padding:10px 16px; background:var(--surface); border-bottom:1px solid var(--border); gap:10px; flex-shrink:0; }
+.header h1 { font-size:16px; color:var(--accent); margin-right:auto; white-space:nowrap; }
+.header .status { font-size:11px; color:var(--dim); }
+.btn { padding:5px 12px; border:1px solid var(--border); border-radius:5px; background:var(--surface); color:var(--text); cursor:pointer; font-size:11px; transition:.2s; white-space:nowrap; }
+.btn:hover { border-color:var(--accent); color:var(--accent); }
+.btn.accent { border-color:var(--accent); color:var(--accent); }
+.btn.green { border-color:var(--green); color:var(--green); }
+.btn.orange { border-color:var(--orange); color:var(--orange); }
+.btn.purple { border-color:var(--purple); color:var(--purple); }
+select, input { padding:5px 8px; border:1px solid var(--border); border-radius:5px; background:var(--surface); color:var(--text); font-size:11px; }
+.main { display:flex; flex:1; overflow:hidden; }
+.sidebar { width:260px; background:var(--card-bg); border-right:1px solid var(--border); overflow-y:auto; flex-shrink:0; }
+.sidebar .char { padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--border); transition:.15s; font-size:12px; }
+.sidebar .char:hover { background:rgba(88,166,255,0.1); }
+.sidebar .char.active { background:rgba(88,166,255,0.15); border-left:3px solid var(--accent); }
+.sidebar .char .name { font-weight:600; font-size:13px; }
+.sidebar .char .meta { font-size:10px; color:var(--dim); margin-top:1px; }
+.sidebar .char .bz { font-size:10px; margin-top:1px; }
+.content { flex:1; overflow-y:auto; padding:16px; }
+.card { background:var(--card-bg); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:14px; }
+.card h3 { font-size:13px; color:var(--accent); margin-bottom:10px; padding-bottom:6px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; }
+.grid2 { display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:8px; }
+.stat { text-align:center; padding:8px; background:var(--bg); border-radius:6px; }
+.stat .val { font-size:20px; font-weight:700; color:var(--accent); }
+.stat .lbl { font-size:10px; color:var(--dim); margin-top:2px; }
+.bar-wrap { background:var(--bg); border-radius:3px; height:18px; margin:6px 0; overflow:hidden; }
+.bar-fill { height:100%; border-radius:3px; transition:width .3s; }
+.bar-fill.green { background:var(--green); }
+.bar-fill.yellow { background:var(--yellow); }
+.skill-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(160px,1fr)); gap:6px; }
+.skill-card { display:flex; align-items:center; gap:8px; padding:8px 10px; background:var(--bg); border-radius:6px; border:1px solid var(--border); border-left:3px solid var(--border); font-size:11px; transition:.15s; }
+.skill-card:hover { border-color:var(--accent); }
+.skill-icon { width:36px; height:36px; border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:700; flex-shrink:0; position:relative; overflow:hidden; }
+.skill-icon img { position:absolute; top:0;left:0;width:100%;height:100%;object-fit:cover; z-index:1; }
+.skill-icon img[src] { z-index:1; }
+.skill-icon .fallback { z-index:0; }
+.skill-info { flex:1; min-width:0; }
+.skill-info .sn { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.skill-info .sb { font-size:10px; color:var(--dim); }
+.skill-lv { font-weight:700; color:var(--purple); font-size:13px; flex-shrink:0; }
+.dg-row { display:flex; align-items:center; padding:3px 0; font-size:11px; gap:8px; }
+.dg-row .dn { width:130px; }
+.dg-row .bar-mini { flex:1; height:12px; background:var(--bg); border-radius:2px; overflow:hidden; }
+.dg-row .bar-mini .fill { height:100%; background:var(--green); border-radius:2px; }
+.dg-row .cnt { width:35px; text-align:right; font-size:10px; color:var(--dim); }
+
+#detail { display:none; }
+#detail.show { display:block; }
+#empty-state { display:flex; align-items:center; justify-content:center; height:100%; color:var(--dim); font-size:14px; }
+#empty-state.hidden { display:none; }
+
+/* Settings modal */
+.modal { display:none; position:fixed; top:0;left:0;right:0;bottom:0; background:rgba(0,0,0,0.6); z-index:100; align-items:center; justify-content:center; }
+.modal.show { display:flex; }
+.modal-content { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:20px; width:400px; max-height:80vh; overflow-y:auto; }
+.modal-content h3 { margin-bottom:12px; color:var(--accent); }
+.modal-content label { display:block; font-size:11px; color:var(--dim); margin:8px 0 4px; }
+.modal-content input[type=color] { width:50px; height:30px; border:none; cursor:pointer; }
+.modal-content input[type=text], .modal-content input[type=url] { width:100%; padding:6px 8px; border:1px solid var(--border); border-radius:4px; background:var(--bg); color:var(--text); font-size:12px; }
+.modal-content .btn-row { display:flex; gap:8px; margin-top:14px; justify-content:flex-end; }
+
+.color-dot { display:inline-block; width:14px; height:14px; border-radius:50%; margin-right:4px; vertical-align:middle; border:1px solid var(--border); }
+.filter-chip { padding:2px 8px; border-radius:10px; cursor:pointer; transition:.2s; user-select:none; white-space:nowrap; }
+.filter-chip:hover { opacity:0.8; }
+.filter-chip.active { opacity:1; font-weight:700; }
+.filter-chip:not(.active) { opacity:0.4; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>JX3 多角色管理器 v3.0</h1>
+  <select id="serverFilter" onchange="filterChars()"><option>All</option></select>
+  <button class="btn" onclick="refresh()">Refresh</button>
+  <button class="btn accent" onclick="fetchBZ()">Fetch BZ</button>
+  <button class="btn green" onclick="enableStats()">Enable Stats</button>
+  <button class="btn" onclick="exportJSON()">JSON</button>
+  <button class="btn purple" onclick="toggleSettings()">Theme</button>
+  <span class="status" id="status">Ready</span>
+</div>
+
+<div class="main">
+  <div class="sidebar" id="sidebar"></div>
+  <div class="content">
+    <div id="empty-state">Select a character from the sidebar</div>
+    <div id="detail">
+      <div class="card"><h3>Info</h3><div class="grid2" id="charInfo"></div></div>
+      <div class="card"><h3>Baizhan <input id="skillSearch" type="text" placeholder="搜索技能..." style="margin-left:12px;width:140px;font-size:11px;" oninput="renderSkills()"></h3>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0;font-size:10px;">
+        <span style="color:var(--dim);line-height:22px">破绽:</span>
+        <span class="filter-chip" data-color="5" onclick="toggleFilter(this,'color')" style="background:#ff444422;color:#ff4444;border:1px solid #ff4444">红</span>
+        <span class="filter-chip" data-color="2" onclick="toggleFilter(this,'color')" style="background:#ffcc0022;color:#ffcc00;border:1px solid #ffcc00">黄</span>
+        <span class="filter-chip" data-color="3" onclick="toggleFilter(this,'color')" style="background:#4488ff22;color:#4488ff;border:1px solid #4488ff">蓝</span>
+        <span class="filter-chip" data-color="6" onclick="toggleFilter(this,'color')" style="background:#bb44ff22;color:#bb44ff;border:1px solid #bb44ff">紫</span>
+        <span class="filter-chip" data-color="4" onclick="toggleFilter(this,'color')" style="background:#44cc4422;color:#44cc44;border:1px solid #44cc44">绿</span>
+        <span class="filter-chip" data-color="7" onclick="toggleFilter(this,'color')" style="background:#33333322;color:#999;border:1px solid #666">黑</span>
+        <span class="filter-chip" data-color="0" onclick="toggleFilter(this,'color')" style="background:#aaa3;color:#aaa;border:1px solid #888">白</span>
+        <span style="margin-left:8px;color:var(--dim);line-height:22px">冷却:</span>
+        <span class="filter-chip" data-cost="10" onclick="toggleFilter(this,'cost')">10s</span>
+        <span class="filter-chip" data-cost="30" onclick="toggleFilter(this,'cost')">30s</span>
+        <span class="filter-chip" data-cost="60" onclick="toggleFilter(this,'cost')">60s</span>
+        <span style="margin-left:8px;color:var(--dim);line-height:22px">效果:</span>
+        <span class="filter-chip" data-type="attack" onclick="toggleFilter(this,'type')">攻击</span>
+        <span class="filter-chip" data-type="heal" onclick="toggleFilter(this,'type')">治疗</span>
+        <span class="filter-chip" data-type="dash" onclick="toggleFilter(this,'type')">位移</span>
+        <span class="filter-chip" data-type="control" onclick="toggleFilter(this,'type')">控制</span>
+      </div><div id="bzProgress"></div><div class="skill-grid" id="bzSkills" style="margin-top:12px"></div></div>
+      <div class="card"><h3>Dungeon Cooldowns</h3><div id="dgList"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal" id="settingsModal">
+  <div class="modal-content">
+    <h3>Theme Settings</h3>
+    <label>Background Color</label>
+    <input type="color" id="bgColor" value="#0d1117" onchange="applyTheme()">
+    <label>Card Background Opacity <span id="opacityVal">0.92</span></label>
+    <input type="range" id="bgOpacity" min="0.5" max="1" step="0.05" value="0.92" oninput="document.getElementById('opacityVal').textContent=this.value;applyTheme()">
+    <label>Background Image URL</label>
+    <input type="text" id="bgImage" placeholder="https://example.com/bg.jpg" onchange="applyTheme()">
+    <label>Accent Color</label>
+    <input type="color" id="accentColor" value="#58a6ff" onchange="applyTheme()">
+    <label>Text Color</label>
+    <input type="color" id="textColor" value="#c9d1d9" onchange="applyTheme()">
+    <label>Surface Color</label>
+    <input type="color" id="surfaceColor" value="#161b22" onchange="applyTheme()">
+    <div class="btn-row">
+      <button class="btn" onclick="resetTheme()">Reset</button>
+      <button class="btn accent" onclick="toggleSettings()">Done</button>
+    </div>
+  </div>
+</div>
+
+<script src="/eel.js"></script>
+<script>
+let allChars = [], selectedName = null, currentSkills = [];
+const BZ_COLORS = {2:'#ffcc00',3:'#4488ff',4:'#44cc44',5:'#ff4444',6:'#bb44ff',7:'#333333'};
+function getSkillColor(s) {
+  return BZ_COLORS[s.color] || '#aaaaaa';
+}
+
+// Theme
+function loadTheme() {
+  const t = JSON.parse(localStorage.getItem('jx3mgr_theme')||'{}');
+  if (t.bg) document.documentElement.style.setProperty('--bg', t.bg);
+  if (t.surface) document.documentElement.style.setProperty('--surface', t.surface);
+  if (t.text) document.documentElement.style.setProperty('--text', t.text);
+  if (t.accent) document.documentElement.style.setProperty('--accent', t.accent);
+  if (t.bgImage) document.documentElement.style.setProperty('--bg-image', `url(${t.bgImage})`);
+  if (t.bgOpacity) document.documentElement.style.setProperty('--bg-opacity', t.bgOpacity);
+  document.documentElement.style.setProperty('--card-bg', `rgba(${hexToRgb(t.surface||'#161b22')},${t.bgOpacity||0.92})`);
+  document.getElementById('bgColor').value = t.bg || '#0d1117';
+  document.getElementById('surfaceColor').value = t.surface || '#161b22';
+  document.getElementById('textColor').value = t.text || '#c9d1d9';
+  document.getElementById('accentColor').value = t.accent || '#58a6ff';
+  document.getElementById('bgImage').value = t.bgImage || '';
+  document.getElementById('bgOpacity').value = t.bgOpacity || 0.92;
+  document.getElementById('opacityVal').textContent = t.bgOpacity || 0.92;
+}
+function applyTheme() {
+  const t = {
+    bg: document.getElementById('bgColor').value,
+    surface: document.getElementById('surfaceColor').value,
+    text: document.getElementById('textColor').value,
+    accent: document.getElementById('accentColor').value,
+    bgImage: document.getElementById('bgImage').value,
+    bgOpacity: parseFloat(document.getElementById('bgOpacity').value)
+  };
+  localStorage.setItem('jx3mgr_theme', JSON.stringify(t));
+  loadTheme();
+}
+function resetTheme() {
+  localStorage.removeItem('jx3mgr_theme');
+  document.documentElement.style.cssText = '';
+  loadTheme();
+}
+function toggleSettings() {
+  document.getElementById('settingsModal').classList.toggle('show');
+}
+function hexToRgb(h) {
+  const r = parseInt(h.slice(1,3),16), g = parseInt(h.slice(3,5),16), b = parseInt(h.slice(5,7),16);
+  return `${r},${g},${b}`;
+}
+loadTheme();
+
+async function refresh() {
+  document.getElementById("status").textContent = "Loading...";
+  const data = await eel.refresh_data()();
+  allChars = data.characters;
+  renderSidebar();
+  updateServerFilter();
+  if (selectedName) showDetail(selectedName);
+  document.getElementById("status").textContent = allChars.length + " characters";
+  // Load cached BZ data for all characters
+  for (const c of allChars) {
+    if (!c.bz_api) {
+      const cached = await eel.load_cached_bz(c.name)();
+      if (cached && cached.stamina) {
+        c.bz_api = cached;
+        if (c.name === selectedName) showDetail(c.name);
+      }
+    }
+  }
+}
+
+function renderSidebar() {
+  const sv = document.getElementById("serverFilter").value;
+  const filtered = sv === "All" ? allChars : allChars.filter(c => (c.region+"/"+c.server) === sv);
+  document.getElementById("sidebar").innerHTML = filtered.map(c => {
+    const bz = c.bz_progress
+      ? `<span style="color:var(--green)">0-100:${c.bz_progress.killed}/${c.bz_progress.total} XL:${c.bz_progress.xiuluo ? '已击杀' : '未击杀'}</span>`
+      : '<span style="color:var(--dim)">-</span>';
+    return `<div class="char${c.name===selectedName?' active':''}" onclick="showDetail('${c.name}')">
+      <div class="name">${c.name}</div>
+      <div class="meta">${c.region}/${c.server} ${c.force} Lv${c.level} ${c.equip.toLocaleString()}</div>
+      <div class="bz">${bz}</div>
+    </div>`;
+  }).join("");
+}
+
+function updateServerFilter() {
+  const servers = [...new Set(allChars.map(c => c.region+"/"+c.server).filter(s=>s))].sort();
+  const sel = document.getElementById("serverFilter");
+  sel.innerHTML = '<option>All</option>' + servers.map(s => `<option>${s}</option>`).join("");
+}
+function filterChars() { renderSidebar(); }
+
+function showDetail(name) {
+  selectedName = name;
+  const c = allChars.find(x => x.name === name);
+  if (!c) return;
+  document.getElementById("empty-state").classList.add("hidden");
+  document.getElementById("detail").classList.add("show");
+  renderSidebar();
+
+  document.getElementById("charInfo").innerHTML = [
+    ["Server", c.region+"/"+c.server], ["School", c.force], ["Level", c.level],
+    ["Equip", c.equip.toLocaleString()], ["Gold", c.gold.toLocaleString()+"G"],
+    ["Contribution", c.contribution.toLocaleString()], ["Justice", c.justice.toLocaleString()],
+    ["Pet", c.pet.toLocaleString()], ["Achv", c.achievement.toLocaleString()]
+  ].map(([l,v]) => `<div class="stat"><div class="val">${v}</div><div class="lbl">${l}</div></div>`).join("");
+
+  const bp = document.getElementById("bzProgress");
+  if (c.bz_progress) {
+    const p1 = c.bz_progress.total ? (c.bz_progress.killed/c.bz_progress.total*100) : 0;
+    const p2 = c.bz_progress.xiuluo ? 100 : 0;
+    bp.innerHTML = `
+      <div style="margin:6px 0;font-size:11px">0-100: ${c.bz_progress.killed}/${c.bz_progress.total}</div>
+      <div class="bar-wrap"><div class="bar-fill yellow" style="width:${p1}%"></div></div>
+      <div style="margin:6px 0;font-size:11px">Xiuluo: ${c.bz_progress.xiuluo ? '已击杀' : '未击杀'}</div>
+      <div class="bar-wrap"><div class="bar-fill green" style="width:${p2}%"></div></div>`;
+  } else {
+    bp.innerHTML = '<div style="text-align:center;color:var(--dim);padding:20px;font-size:12px">本周无百战击杀记录</div>';
+  }
+
+  // Skills
+  currentSkills = (c.bz_api && c.bz_api.skills) ? c.bz_api.skills : [];
+  if (currentSkills.length) {
+    document.getElementById("bzSkills").parentElement.querySelector("h3").style.display = "";
+    document.getElementById("skillSearch").value = "";
+  } else {
+    document.getElementById("bzSkills").innerHTML = '<div style="text-align:center;color:var(--dim);padding:20px;font-size:12px">Click [Fetch BZ] to load skills</div>';
+    document.getElementById("bzSkills").parentElement.querySelector("h3").style.display = "none";
+  }
+  renderSkills();
+
+  // Dungeon CD
+  const dg = document.getElementById("dgList");
+  const dkeys = Object.keys(c.dungeons||{});
+  if (dkeys.length) {
+    const DN = {299:"武林通鉴·秘境",301:"武林通鉴·秘境",341:"武林通鉴·团队",364:"武林通鉴·团队",482:"武林通鉴·团队",573:"武林通鉴·团队",586:"武林通鉴·团队",636:"武林通鉴·团队",562:"百战异闻录",793:"阆风悬城",794:"阆风悬城·普通",795:"阆风悬城·英雄"};
+    dg.innerHTML = dkeys.map(k => {
+      const d = c.dungeons[k];
+      const dname = (d && d.name) || DN[k] || ('副本' + k);
+      return `<div class="dg-row"><span class="dn">${dname}</span><div class="bar-mini"><div class="fill" style="width:${d.total?d.done/d.total*100:0}%"></div></div><span class="cnt">${d.done}/${d.total}</span></div>`;
+    }).join("");
+  } else {
+    dg.innerHTML = '<div style="text-align:center;color:var(--dim);padding:20px;font-size:12px">No dungeon CD data</div>';
+  }
+}
+
+function renderSkills() {
+  const q = (document.getElementById("skillSearch").value||"").toLowerCase();
+  let filtered = currentSkills.filter(s => s.name.toLowerCase().includes(q));
+  
+  // Active color filter
+  const activeColor = document.querySelector('.filter-chip.active[data-color]');
+  if (activeColor) {
+    const c = parseInt(activeColor.dataset.color);
+    filtered = filtered.filter(s => s.color === c);
+  }
+  // Active cost filter  
+  const activeCost = document.querySelector('.filter-chip.active[data-cost]');
+  if (activeCost) {
+    const cost = parseInt(activeCost.dataset.cost);
+    filtered = filtered.filter(s => {
+      const c = s.cost || 1;
+      if (cost === 10) return c === 1;
+      if (cost === 30) return c === 2 || c === 3;
+      if (cost === 60) return c >= 4;
+      return true;
+    });
+  }
+  // Active type filter
+  const activeType = document.querySelector('.filter-chip.active[data-type]');
+  if (activeType) {
+    const t = activeType.dataset.type;
+    if (t === 'attack') filtered = filtered.filter(s => { const tp = s.type||''; return tp.includes('1')||tp.includes('2')||tp.includes('3')||tp.includes('4')||tp.includes('5'); });
+    if (t === 'heal') filtered = filtered.filter(s => { const tp = s.type||''; return tp.includes('7')||tp.includes('8')||tp.includes('11'); });
+    if (t === 'dash') filtered = filtered.filter(s => { const tp = s.type||''; return tp.includes('10')||tp.includes('13')||tp.includes('14'); });
+    if (t === 'control') filtered = filtered.filter(s => { const tp = s.type||''; return tp.includes('6')||tp.includes('9')||tp.includes('12'); });
+  }
+  const container = document.getElementById("bzSkills");
+  if (!currentSkills.length) {
+    container.innerHTML = '<div style="text-align:center;color:var(--dim);padding:20px;font-size:12px">No skills data</div>';
+    return;
+  }
+
+  // Spirit/Energy summary line
+  const c = allChars.find(x => x.name === selectedName);
+  let header = '';
+  if (c && c.bz_api) {
+    header = `<div style="display:flex;gap:16px;margin-bottom:10px;font-size:12px">
+      <span>Spirit: <b style="color:var(--accent)">${c.bz_api.stamina.toLocaleString()}</b>${c.bz_api._cached_at ? ` <span style="font-size:10px;color:var(--dim)">cached: ${c.bz_api._cached_at}</span>` : ""}</span>
+      <span>Energy: <b style="color:var(--accent)">${c.bz_api.energy.toLocaleString()}</b></span>
+      <span>Skills: <b style="color:var(--accent)">${c.bz_api.skill_count}</b></span>
+    </div>`;
+  }
+
+  container.innerHTML = header + filtered.map(s => {
+    const initial = s.name.charAt(0);
+    return `<div class="skill-card" style="border-left:3px solid ${getSkillColor(s)}" title="${s.desc?.detail || s.desc?.brief || ''}">
+      <div class="skill-icon" style="background:${getSkillColor(s)}22;color:${getSkillColor(s)}">
+        <img src="${s.icon_url || "icons/default.png"}" 
+             onerror="this.style.display='none';this.style.display='none';this.nextElementSibling.style.display='block'"
+             style="width:32px;height:32px;border-radius:3px" loading="lazy">
+        <span class="fallback" style="display:block">${initial}</span>
+      </div>
+      <div class="skill-info"><div class="sn">${s.name}</div><div class="sb">${s.boss}</div></div>
+      <div class="skill-lv">Lv${s.level}<span style="font-size:9px;color:var(--dim);margin-left:4px">${s.meta?.dbm_cost ? s.meta.dbm_cost + 'pt' : 'c' + (s.cost||1)}</span></div>
+    </div>`;
+  }).join("") || '<div style="text-align:center;color:var(--dim);padding:20px">No matching skills</div>';
+}
+
+function toggleFilter(el, group) {
+  const wasActive = el.classList.contains('active');
+  // Deactivate all in same group
+  document.querySelectorAll('.filter-chip[data-'+group+']').forEach(c => c.classList.remove('active'));
+  if (!wasActive) el.classList.add('active');
+  renderSkills();
+}
+
+async function fetchBZ() {
+  if (!selectedName) return alert("Select a character first");
+  document.getElementById("status").textContent = "Fetching " + selectedName + "...";
+  try {
+    const data = await eel.fetch_baizhan(selectedName)();
+    if (!data || data.error) { alert(data?.error||"No data"); return; }
+    let c = allChars.find(x => x.name === selectedName);
+    if (!c) return;
+    c.bz_api = data;
+    currentSkills = data.skills || [];
+    // Force UI update
+    document.getElementById("empty-state").classList.add("hidden");
+    document.getElementById("detail").classList.add("show");
+    showDetail(selectedName);
+    document.getElementById("status").textContent = selectedName + ": OK (" + (data.skill_count||0) + " skills)";
+  } catch(e) {
+    alert("Fetch failed: " + e);
+  }
+}
+
+async function enableStats() {
+  if (!selectedName) return alert("Select a character first");
+  const data = await eel.enable_stats(selectedName)();
+  alert(data.msg);
+}
+
+async function exportJSON() {
+  const path = await eel.export_json()();
+  alert("Exported to: " + path);
+}
+
+// Auto refresh on load
+window.addEventListener('load', () => {
+  refresh();
+});
+</script>
+</body>
+</html>

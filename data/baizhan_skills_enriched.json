@@ -1,0 +1,955 @@
+{
+  "found": 132,
+  "not_found": [
+    "坠龙惊鸿",
+    "临空夺珠",
+    "霸山式",
+    "修罗问剑",
+    "短歌一觞",
+    "一瞬柄撞",
+    "逆波式",
+    "夜叉浮乐",
+    "铁猬",
+    "海龙御劲",
+    "俯阵熊突",
+    "麒麟遁甲",
+    "绝地反击",
+    "短歌垂链",
+    "短歌万劫",
+    "泉映幻歌",
+    "阴雷之种",
+    "无我无剑式",
+    "三环套月式",
+    "含笑半步颠",
+    "九转归元诀",
+    "狂澜摧城",
+    "凝锋斩",
+    "截影推山"
+  ],
+  "skills": {
+    "破裂": {
+      "name": "破裂",
+      "cooldown": 2,
+      "icon_id_jx3box": 2034,
+      "dwID": 28826,
+      "nLevel": 12
+    },
+    "一刀浮尘": {
+      "name": "一刀浮尘",
+      "cooldown": null,
+      "icon_id_jx3box": 16382,
+      "dwID": 30136,
+      "nLevel": 7
+    },
+    "定波式": {
+      "name": "定波式",
+      "cooldown": 10,
+      "icon_id_jx3box": 9,
+      "dwID": 29136,
+      "nLevel": 3
+    },
+    "枪法散阵": {
+      "name": "枪法散阵",
+      "cooldown": null,
+      "icon_id_jx3box": 16379,
+      "dwID": 30142,
+      "nLevel": 7
+    },
+    "空穴来风": {
+      "name": "空穴来风",
+      "cooldown": null,
+      "icon_id_jx3box": 0,
+      "dwID": 29022,
+      "nLevel": 1
+    },
+    "特制金创药": {
+      "name": "特制金创药",
+      "cooldown": null,
+      "icon_id_jx3box": 16357,
+      "dwID": 30536,
+      "nLevel": 7
+    },
+    "五行术土遁": {
+      "name": "五行术土遁",
+      "cooldown": null,
+      "icon_id_jx3box": 16360,
+      "dwID": 30542,
+      "nLevel": 7
+    },
+    "散阵枪": {
+      "name": "散阵枪",
+      "cooldown": 1,
+      "icon_id_jx3box": 622,
+      "dwID": 34504,
+      "nLevel": 1
+    },
+    "仇恨咆哮": {
+      "name": "仇恨咆哮",
+      "cooldown": null,
+      "icon_id_jx3box": 16366,
+      "dwID": 30550,
+      "nLevel": 7
+    },
+    "兵犬丸": {
+      "name": "兵犬丸",
+      "cooldown": 3,
+      "icon_id_jx3box": 3787,
+      "dwID": 28058,
+      "nLevel": 12
+    },
+    "凶刃乱舞": {
+      "name": "凶刃乱舞",
+      "cooldown": null,
+      "icon_id_jx3box": 16337,
+      "dwID": 30569,
+      "nLevel": 7
+    },
+    "杀红眼": {
+      "name": "杀红眼",
+      "cooldown": null,
+      "icon_id_jx3box": 339,
+      "dwID": 28823,
+      "nLevel": 1
+    },
+    "尸鬼封烬": {
+      "name": "尸鬼封烬",
+      "cooldown": null,
+      "icon_id_jx3box": 13,
+      "dwID": 942,
+      "nLevel": 1
+    },
+    "漾剑式": {
+      "name": "漾剑式",
+      "cooldown": null,
+      "icon_id_jx3box": 16347,
+      "dwID": 36075,
+      "nLevel": 1
+    },
+    "九阴封脉指": {
+      "name": "九阴封脉指",
+      "cooldown": null,
+      "icon_id_jx3box": 13,
+      "dwID": 29138,
+      "nLevel": 1
+    },
+    "归潮长生法": {
+      "name": "归潮长生法",
+      "cooldown": 3,
+      "icon_id_jx3box": 13,
+      "dwID": 29139,
+      "nLevel": 1
+    },
+    "一闪天诛": {
+      "name": "一闪天诛",
+      "cooldown": null,
+      "icon_id_jx3box": 16354,
+      "dwID": 36086,
+      "nLevel": 1
+    },
+    "一闪无痕": {
+      "name": "一闪无痕",
+      "cooldown": null,
+      "icon_id_jx3box": 16355,
+      "dwID": 36119,
+      "nLevel": 1
+    },
+    "初景白雨": {
+      "name": "初景白雨",
+      "cooldown": null,
+      "icon_id_jx3box": 16352,
+      "dwID": 30594,
+      "nLevel": 7
+    },
+    "破竹返": {
+      "name": "破竹返",
+      "cooldown": null,
+      "icon_id_jx3box": 16353,
+      "dwID": 30595,
+      "nLevel": 7
+    },
+    "一刀柄锤": {
+      "name": "一刀柄锤",
+      "cooldown": null,
+      "icon_id_jx3box": null,
+      "dwID": 33694,
+      "nLevel": 1
+    },
+    "麝鹿续命丸": {
+      "name": "麝鹿续命丸",
+      "cooldown": 5,
+      "icon_id_jx3box": 16342,
+      "dwID": 28302,
+      "nLevel": 1
+    },
+    "巨猿劈山": {
+      "name": "巨猿劈山",
+      "cooldown": null,
+      "icon_id_jx3box": 13,
+      "dwID": 21721,
+      "nLevel": 2
+    },
+    "斗转金移": {
+      "name": "斗转金移",
+      "cooldown": null,
+      "icon_id_jx3box": 0,
+      "dwID": 29007,
+      "nLevel": 14
+    },
+    "万花金创药": {
+      "name": "万花金创药",
+      "cooldown": null,
+      "icon_id_jx3box": 16358,
+      "dwID": 30608,
+      "nLevel": 7
+    },
+    "梁上君子": {
+      "name": "梁上君子",
+      "cooldown": null,
+      "icon_id_jx3box": 0,
+      "dwID": 29207,
+      "nLevel": 1
+    },
+    "渐影凝视": {
+      "name": "渐影凝视",
+      "cooldown": null,
+      "icon_id_jx3box": 13,
+      "dwID": 1938,
+      "nLevel": 1
+    },
+    "居合贯诚": {
+      "name": "居合贯诚",
+      "cooldown": null,
+      "icon_id_jx3box": 16398,
+      "dwID": 30611,
+      "nLevel": 7
+    },
+    "百步缠丝手": {
+      "name": "百步缠丝手",
+      "cooldown": null,
+      "icon_id_jx3box": 13,
+      "dwID": 2134,
+      "nLevel": 1
+    },
+    "五行术雷震": {
+      "name": "五行术雷震",
+      "cooldown": null,
+      "icon_id_jx3box": 16359,
+      "dwID": 30618,
+      "nLevel": 7
+    },
+    "冲炎枪": {
+      "name": "冲炎枪",
+      "cooldown": 1,
+      "icon_id_jx3box": 13,
+      "dwID": 29082,
+      "nLevel": 1
+    },
+    "阴阳术退散": {
+      "name": "阴阳术退散",
+      "cooldown": null,
+      "icon_id_jx3box": 16406,
+      "dwID": 30620,
+      "nLevel": 7
+    },
+    "土灵道符": {
+      "name": "土灵道符",
+      "cooldown": 3,
+      "icon_id_jx3box": 16402,
+      "dwID": 28943,
+      "nLevel": 6
+    },
+    "内力潮汐": {
+      "name": "内力潮汐",
+      "cooldown": null,
+      "icon_id_jx3box": 16370,
+      "dwID": 30626,
+      "nLevel": 7
+    },
+    "气刃法": {
+      "name": "气刃法",
+      "cooldown": null,
+      "icon_id_jx3box": 0,
+      "dwID": 29642,
+      "nLevel": 1
+    },
+    "蝮蛇召唤": {
+      "name": "蝮蛇召唤",
+      "cooldown": 3,
+      "icon_id_jx3box": 16392,
+      "dwID": 28495,
+      "nLevel": 6
+    },
+    "炼蛇花召唤": {
+      "name": "炼蛇花召唤",
+      "cooldown": 3,
+      "icon_id_jx3box": 16393,
+      "dwID": 28496,
+      "nLevel": 5
+    },
+    "五灵加护": {
+      "name": "五灵加护",
+      "cooldown": null,
+      "icon_id_jx3box": 16404,
+      "dwID": 30642,
+      "nLevel": 7
+    },
+    "幽冥指": {
+      "name": "幽冥指",
+      "cooldown": null,
+      "icon_id_jx3box": 16373,
+      "dwID": 36069,
+      "nLevel": 1
+    },
+    "火魅指": {
+      "name": "火魅指",
+      "cooldown": null,
+      "icon_id_jx3box": 16369,
+      "dwID": 36071,
+      "nLevel": 1
+    },
+    "血涂风暴": {
+      "name": "血涂风暴",
+      "cooldown": null,
+      "icon_id_jx3box": 0,
+      "dwID": 29226,
+      "nLevel": 16
+    },
+    "枪法炎罗": {
+      "name": "枪法炎罗",
+      "cooldown": null,
+      "icon_id_jx3box": 16356,
+      "dwID": 30665,
+      "nLevel": 7
+    },
+    "毓秀灵药": {
+      "name": "毓秀灵药",
+      "cooldown": 60,
+      "icon_id_jx3box": 16338,
+      "dwID": 28304,
+      "nLevel": 1
+    },
+    "奔狼踏月式": {
+      "name": "奔狼踏月式",
+      "cooldown": null,
+      "icon_id_jx3box": 13,
+      "dwID": 3580,
+      "nLevel": 2
+    },
+    "剑心通明": {
+      "name": "剑心通明",
+      "cooldown": null,
+      "icon_id_jx3box": 0,
+      "dwID": 28841,
+      "nLevel": 12
+    },
+    "踏月式掠途": {
+      "name": "踏月式掠途",
+      "cooldown": null,
+      "icon_id_jx3box": 16364,
+      "dwID": 30679,
+      "nLevel": 7
+    },
+    "帝骖龙翔": {
+      "name": "帝骖龙翔",
+      "cooldown": 2,
+      "icon_id_jx3box": 13,
+      "dwID": 41829,
+      "nLevel": 1
+    },
+    "三阳穿心掌": {
+      "name": "三阳穿心掌",
+      "cooldown": 2,
+      "icon_id_jx3box": 4522,
+      "dwID": 43544,
+      "nLevel": 1
+    },
+    "血龙甩尾": {
+      "name": "血龙甩尾",
+      "cooldown": null,
+      "icon_id_jx3box": 0,
+      "dwID": 43542,
+      "nLevel": 1
+    },
+    "兔死狐悲": {
+      "name": "兔死狐悲",
+      "cooldown": null,
+      "icon_id_jx3box": 0,
+      "dwID": 29662,
+      "nLevel": 1
+    },
+    "逆心转脉": {
+      "name": "逆心转脉",
+      "cooldown": 0,
+      "icon_id_jx3box": 330,
+      "dwID": 43596,
+      "nLevel": 1
+    },
+    "特制止血钳": {
+      "name": "特制止血钳",
+      "cooldown": 24,
+      "icon_id_jx3box": 24649,
+      "dwID": 29298,
+      "nLevel": 19
+    },
+    "麻沸散": {
+      "name": "麻沸散",
+      "cooldown": 10,
+      "icon_id_jx3box": 18368,
+      "dwID": 29291,
+      "nLevel": 1
+    },
+    "伤寒刺骨针": {
+      "name": "伤寒刺骨针",
+      "cooldown": 3,
+      "icon_id_jx3box": 4534,
+      "dwID": 43348,
+      "nLevel": 1
+    },
+    "天养生息法": {
+      "name": "天养生息法",
+      "cooldown": 4,
+      "icon_id_jx3box": 16444,
+      "dwID": 43359,
+      "nLevel": 1
+    },
+    "玄珠花蜜": {
+      "name": "玄珠花蜜",
+      "cooldown": 6,
+      "icon_id_jx3box": 9,
+      "dwID": 31553,
+      "nLevel": 19
+    },
+    "花钱消灾": {
+      "name": "花钱消灾",
+      "cooldown": null,
+      "icon_id_jx3box": 16349,
+      "dwID": 30741,
+      "nLevel": 7
+    },
+    "通世金诀": {
+      "name": "通世金诀",
+      "cooldown": null,
+      "icon_id_jx3box": 16351,
+      "dwID": 30747,
+      "nLevel": 7
+    },
+    "枪法铁林": {
+      "name": "枪法铁林",
+      "cooldown": null,
+      "icon_id_jx3box": 0,
+      "dwID": 30187,
+      "nLevel": 1
+    },
+    "武傀召来": {
+      "name": "武傀召来",
+      "cooldown": null,
+      "icon_id_jx3box": 16405,
+      "dwID": 30755,
+      "nLevel": 7
+    },
+    "顽抗": {
+      "name": "顽抗",
+      "cooldown": null,
+      "icon_id_jx3box": 16343,
+      "dwID": 30765,
+      "nLevel": 7
+    },
+    "皓莲望月": {
+      "name": "皓莲望月",
+      "cooldown": 60,
+      "icon_id_jx3box": 16375,
+      "dwID": 28967,
+      "nLevel": 1
+    },
+    "积气法门": {
+      "name": "积气法门",
+      "cooldown": 5,
+      "icon_id_jx3box": 24650,
+      "dwID": 28182,
+      "nLevel": 7
+    },
+    "霞月长针": {
+      "name": "霞月长针",
+      "cooldown": null,
+      "icon_id_jx3box": 13,
+      "dwID": 1182,
+      "nLevel": 1
+    },
+    "暗狼袭爪": {
+      "name": "暗狼袭爪",
+      "cooldown": 10,
+      "icon_id_jx3box": 18368,
+      "dwID": 28181,
+      "nLevel": 2
+    },
+    "黑煞落贪狼": {
+      "name": "黑煞落贪狼",
+      "cooldown": 60,
+      "icon_id_jx3box": 16376,
+      "dwID": 28193,
+      "nLevel": 1
+    },
+    "傲然刀势": {
+      "name": "傲然刀势",
+      "cooldown": 3,
+      "icon_id_jx3box": 24649,
+      "dwID": 33026,
+      "nLevel": 1
+    },
+    "飞云回转刀": {
+      "name": "飞云回转刀",
+      "cooldown": null,
+      "icon_id_jx3box": 13,
+      "dwID": 2535,
+      "nLevel": 4
+    },
+    "气血蚕食法": {
+      "name": "气血蚕食法",
+      "cooldown": 5,
+      "icon_id_jx3box": 3409,
+      "dwID": 29228,
+      "nLevel": 1
+    },
+    "凌云步": {
+      "name": "凌云步",
+      "cooldown": null,
+      "icon_id_jx3box": 16399,
+      "dwID": 30807,
+      "nLevel": 7
+    },
+    "画影飞赴": {
+      "name": "画影飞赴",
+      "cooldown": null,
+      "icon_id_jx3box": 16396,
+      "dwID": 30809,
+      "nLevel": 7
+    },
+    "陀罗曲波纹": {
+      "name": "陀罗曲波纹",
+      "cooldown": null,
+      "icon_id_jx3box": 16384,
+      "dwID": 30810,
+      "nLevel": 7
+    },
+    "陀罗曲静壁": {
+      "name": "陀罗曲静壁",
+      "cooldown": null,
+      "icon_id_jx3box": 16385,
+      "dwID": 29011,
+      "nLevel": 5
+    },
+    "土崩炸弹": {
+      "name": "土崩炸弹",
+      "cooldown": null,
+      "icon_id_jx3box": 16387,
+      "dwID": 36120,
+      "nLevel": 1
+    },
+    "七荒黑牙": {
+      "name": "七荒黑牙",
+      "cooldown": 24,
+      "icon_id_jx3box": 13,
+      "dwID": 43562,
+      "nLevel": 1
+    },
+    "万蛇骨": {
+      "name": "万蛇骨",
+      "cooldown": 10,
+      "icon_id_jx3box": 25830,
+      "dwID": 43563,
+      "nLevel": 1
+    },
+    "枪断晴川": {
+      "name": "枪断晴川",
+      "cooldown": 3,
+      "icon_id_jx3box": 4224,
+      "dwID": 35011,
+      "nLevel": 1
+    },
+    "冥府滑行": {
+      "name": "冥府滑行",
+      "cooldown": 5,
+      "icon_id_jx3box": 4522,
+      "dwID": 29821,
+      "nLevel": 3
+    },
+    "龙象般若功": {
+      "name": "龙象般若功",
+      "cooldown": null,
+      "icon_id_jx3box": 339,
+      "dwID": 43823,
+      "nLevel": 1
+    },
+    "华散曲黑洞": {
+      "name": "华散曲黑洞",
+      "cooldown": 20,
+      "icon_id_jx3box": 17690,
+      "dwID": 32011,
+      "nLevel": 1
+    },
+    "陀罗曲破镜": {
+      "name": "陀罗曲破镜",
+      "cooldown": null,
+      "icon_id_jx3box": 17689,
+      "dwID": 32050,
+      "nLevel": 7
+    },
+    "红蝠掠影": {
+      "name": "红蝠掠影",
+      "cooldown": null,
+      "icon_id_jx3box": 17687,
+      "dwID": 32051,
+      "nLevel": 7
+    },
+    "暗龙火冲": {
+      "name": "暗龙火冲",
+      "cooldown": 4,
+      "icon_id_jx3box": 13,
+      "dwID": 34756,
+      "nLevel": 1
+    },
+    "毒指功": {
+      "name": "毒指功",
+      "cooldown": null,
+      "icon_id_jx3box": 18506,
+      "dwID": 33601,
+      "nLevel": 7
+    },
+    "枪法蝮蛇": {
+      "name": "枪法蝮蛇",
+      "cooldown": null,
+      "icon_id_jx3box": 18507,
+      "dwID": 33602,
+      "nLevel": 7
+    },
+    "夺命突": {
+      "name": "夺命突",
+      "cooldown": null,
+      "icon_id_jx3box": 12461,
+      "dwID": 34436,
+      "nLevel": 1
+    },
+    "孤傲战鳍": {
+      "name": "孤傲战鳍",
+      "cooldown": 2,
+      "icon_id_jx3box": 3408,
+      "dwID": 34577,
+      "nLevel": 1
+    },
+    "海蛇投枪": {
+      "name": "海蛇投枪",
+      "cooldown": 8,
+      "icon_id_jx3box": 13,
+      "dwID": 38004,
+      "nLevel": 1
+    },
+    "鲨之息": {
+      "name": "鲨之息",
+      "cooldown": null,
+      "icon_id_jx3box": 19455,
+      "dwID": 35132,
+      "nLevel": 7
+    },
+    "三个铜钱": {
+      "name": "三个铜钱",
+      "cooldown": null,
+      "icon_id_jx3box": 0,
+      "dwID": 35090,
+      "nLevel": 8
+    },
+    "物超所值": {
+      "name": "物超所值",
+      "cooldown": null,
+      "icon_id_jx3box": 0,
+      "dwID": 35045,
+      "nLevel": 1
+    },
+    "乾坤一掷": {
+      "name": "乾坤一掷",
+      "cooldown": 2,
+      "icon_id_jx3box": 12249,
+      "dwID": 35049,
+      "nLevel": 1
+    },
+    "蛮熊碎颅击": {
+      "name": "蛮熊碎颅击",
+      "cooldown": null,
+      "icon_id_jx3box": 13,
+      "dwID": 1163,
+      "nLevel": 11
+    },
+    "水遁水流闪": {
+      "name": "水遁水流闪",
+      "cooldown": null,
+      "icon_id_jx3box": 19456,
+      "dwID": 35137,
+      "nLevel": 7
+    },
+    "疯狂疾走": {
+      "name": "疯狂疾走",
+      "cooldown": null,
+      "icon_id_jx3box": 19434,
+      "dwID": 36091,
+      "nLevel": 1
+    },
+    "角抵技巧": {
+      "name": "角抵技巧",
+      "cooldown": null,
+      "icon_id_jx3box": 19449,
+      "dwID": 35139,
+      "nLevel": 7
+    },
+    "夜叉探海诀": {
+      "name": "夜叉探海诀",
+      "cooldown": null,
+      "icon_id_jx3box": 19458,
+      "dwID": 35140,
+      "nLevel": 7
+    },
+    "灵虫召唤": {
+      "name": "灵虫召唤",
+      "cooldown": 14,
+      "icon_id_jx3box": 13,
+      "dwID": 36777,
+      "nLevel": 1
+    },
+    "厄毒爆发": {
+      "name": "厄毒爆发",
+      "cooldown": 63,
+      "icon_id_jx3box": 4222,
+      "dwID": 36684,
+      "nLevel": 1
+    },
+    "厄毒掌法": {
+      "name": "厄毒掌法",
+      "cooldown": 1,
+      "icon_id_jx3box": 13,
+      "dwID": 36696,
+      "nLevel": 1
+    },
+    "噬血夺魂": {
+      "name": "噬血夺魂",
+      "cooldown": 4,
+      "icon_id_jx3box": 18541,
+      "dwID": 36793,
+      "nLevel": 1
+    },
+    "蚀骨之花": {
+      "name": "蚀骨之花",
+      "cooldown": 51,
+      "icon_id_jx3box": 13,
+      "dwID": 28004,
+      "nLevel": 1
+    },
+    "火焰吞吐": {
+      "name": "火焰吞吐",
+      "cooldown": 3,
+      "icon_id_jx3box": 4222,
+      "dwID": 39012,
+      "nLevel": 1
+    },
+    "引燃": {
+      "name": "引燃",
+      "cooldown": 4,
+      "icon_id_jx3box": 13,
+      "dwID": 39017,
+      "nLevel": 1
+    },
+    "挽花": {
+      "name": "挽花",
+      "cooldown": 2,
+      "icon_id_jx3box": 13,
+      "dwID": 39015,
+      "nLevel": 1
+    },
+    "铁炉机甲": {
+      "name": "铁炉机甲",
+      "cooldown": null,
+      "icon_id_jx3box": 0,
+      "dwID": 39353,
+      "nLevel": 1
+    },
+    "天工机甲龙": {
+      "name": "天工机甲龙",
+      "cooldown": 5,
+      "icon_id_jx3box": 23687,
+      "dwID": 39142,
+      "nLevel": 1
+    },
+    "天工机甲人": {
+      "name": "天工机甲人",
+      "cooldown": 5,
+      "icon_id_jx3box": 23688,
+      "dwID": 39180,
+      "nLevel": 1
+    },
+    "机铠原型机": {
+      "name": "机铠原型机",
+      "cooldown": 10,
+      "icon_id_jx3box": 23678,
+      "dwID": 39189,
+      "nLevel": 1
+    },
+    "火焰之种": {
+      "name": "火焰之种",
+      "cooldown": null,
+      "icon_id_jx3box": null,
+      "dwID": 39091,
+      "nLevel": 1
+    },
+    "火云": {
+      "name": "火云",
+      "cooldown": 25,
+      "icon_id_jx3box": 13,
+      "dwID": 4385,
+      "nLevel": 1
+    },
+    "戮身": {
+      "name": "戮身",
+      "cooldown": 0,
+      "icon_id_jx3box": 13,
+      "dwID": 39011,
+      "nLevel": 1
+    },
+    "悬命线": {
+      "name": "悬命线",
+      "cooldown": null,
+      "icon_id_jx3box": 13,
+      "dwID": 24296,
+      "nLevel": 1
+    },
+    "冰魄针": {
+      "name": "冰魄针",
+      "cooldown": 2,
+      "icon_id_jx3box": 3408,
+      "dwID": 38937,
+      "nLevel": 1
+    },
+    "流霞点绛": {
+      "name": "流霞点绛",
+      "cooldown": 1,
+      "icon_id_jx3box": 324,
+      "dwID": 41942,
+      "nLevel": 1
+    },
+    "霞袖回春": {
+      "name": "霞袖回春",
+      "cooldown": 2,
+      "icon_id_jx3box": 16341,
+      "dwID": 41958,
+      "nLevel": 1
+    },
+    "云海听弦": {
+      "name": "云海听弦",
+      "cooldown": 2,
+      "icon_id_jx3box": 16341,
+      "dwID": 41971,
+      "nLevel": 1
+    },
+    "玉魄惊鸾": {
+      "name": "玉魄惊鸾",
+      "cooldown": 3,
+      "icon_id_jx3box": 13,
+      "dwID": 41969,
+      "nLevel": 1
+    },
+    "剑飞惊天": {
+      "name": "剑飞惊天",
+      "cooldown": 10,
+      "icon_id_jx3box": 13,
+      "dwID": 2008,
+      "nLevel": 1
+    },
+    "月流斩": {
+      "name": "月流斩",
+      "cooldown": 2,
+      "icon_id_jx3box": 13,
+      "dwID": 43534,
+      "nLevel": 1
+    },
+    "退山凝": {
+      "name": "退山凝",
+      "cooldown": 0,
+      "icon_id_jx3box": 12249,
+      "dwID": 43511,
+      "nLevel": 1
+    },
+    "电挈昆吾": {
+      "name": "电挈昆吾",
+      "cooldown": 2,
+      "icon_id_jx3box": 24598,
+      "dwID": 40965,
+      "nLevel": 10
+    },
+    "立剑势": {
+      "name": "立剑势",
+      "cooldown": 2,
+      "icon_id_jx3box": 16341,
+      "dwID": 43484,
+      "nLevel": 1
+    },
+    "震岳势": {
+      "name": "震岳势",
+      "cooldown": 3,
+      "icon_id_jx3box": 13,
+      "dwID": 40605,
+      "nLevel": 1
+    },
+    "八擒": {
+      "name": "八擒",
+      "cooldown": 5,
+      "icon_id_jx3box": 2405,
+      "dwID": 43560,
+      "nLevel": 1
+    },
+    "竹菱镖": {
+      "name": "竹菱镖",
+      "cooldown": 4,
+      "icon_id_jx3box": 2786,
+      "dwID": 43554,
+      "nLevel": 3
+    },
+    "灼脉逆血针": {
+      "name": "灼脉逆血针",
+      "cooldown": 48,
+      "icon_id_jx3box": 2039,
+      "dwID": 43396,
+      "nLevel": 9
+    },
+    "扁鹊推手": {
+      "name": "扁鹊推手",
+      "cooldown": 0,
+      "icon_id_jx3box": 13,
+      "dwID": 43413,
+      "nLevel": 9
+    },
+    "灵狐截刃": {
+      "name": "灵狐截刃",
+      "cooldown": 4,
+      "icon_id_jx3box": 4530,
+      "dwID": 43607,
+      "nLevel": 1
+    },
+    "血狱隐杀": {
+      "name": "血狱隐杀",
+      "cooldown": 39,
+      "icon_id_jx3box": 13,
+      "dwID": 43844,
+      "nLevel": 1
+    },
+    "赤龙瞪目": {
+      "name": "赤龙瞪目",
+      "cooldown": 3,
+      "icon_id_jx3box": 13,
+      "dwID": 43588,
+      "nLevel": 1
+    },
+    "横绝八荒": {
+      "name": "横绝八荒",
+      "cooldown": 3,
+      "icon_id_jx3box": 622,
+      "dwID": 44684,
+      "nLevel": 1
+    }
+  }
+}
