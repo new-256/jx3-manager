@@ -1402,16 +1402,14 @@ class CoreSkillsConfigDialog(QDialog):
         for sname in self.all_skills:
             self._skill_meta_cache[sname] = self._get_skill_meta(sname)
 
-        # 招式级别（1级=10S / 2级=30S / 3级=1分钟）与消耗点数（占用技能格），用于标注与筛选
+        # 招式调息时间（jx3box 数据，覆盖全部 156 个）与消耗点数（占用技能格），用于标注与筛选
         try:
-            from bz_core_skills import get_skill_levels, get_skill_costs, SKILL_LEVEL_WINDOW
-            self._skill_levels = get_skill_levels()
+            from bz_core_skills import get_skill_cooldowns, get_skill_costs
+            self._skill_cds = get_skill_cooldowns()
             self._skill_costs = get_skill_costs()
-            self._level_window = dict(SKILL_LEVEL_WINDOW)
         except Exception:
-            self._skill_levels = {}
+            self._skill_cds = {}
             self._skill_costs = {}
-            self._level_window = {}
 
         self.current_cat_idx = -1
         self._is_updating_ui = False
@@ -1448,23 +1446,30 @@ class CoreSkillsConfigDialog(QDialog):
         self.init_ui()
 
     def _format_skill_label(self, sname: str) -> str:
-        level = self._skill_levels.get(sname)
+        cd = self._skill_cds.get(sname)
         cost = self._skill_costs.get(sname)
-        lv_str = f"{level}级/{self._level_window.get(level, '')}" if level is not None else "-"
+        if cd is None:
+            cd_str = "-"
+        elif cd == 0:
+            cd_str = "无调息"
+        else:
+            cd_str = f"{cd}秒"
         cost_str = f" {cost}点" if cost is not None else ""
-        return f"{sname}  ·{lv_str}{cost_str}"
+        return f"{sname}  ·{cd_str}{cost_str}"
 
     def _get_skill_tooltip(self, sname: str) -> str:
         meta = self._skill_meta_cache.get(sname) or self._get_skill_meta(sname)
         detail = meta.get("detail", "")
-        level = self._skill_levels.get(sname)
+        cd = self._skill_cds.get(sname)
         cost = self._skill_costs.get(sname)
         lines = [f"【{sname}】"]
-        if level is not None:
-            win = self._level_window.get(level, "")
-            lines.append(f"【招式级别】: {level} 级（对应 {win} 档）")
+        if cd is None:
+            lines.append("【调息时间】: -（无数据，默认归 10S 档，可手动划分）")
+        elif cd == 0:
+            lines.append("【调息时间】: 无调息时间")
         else:
-            lines.append("【招式级别】: -（默认归 10S 档，可手动划分）")
+            win = "10S" if cd <= 10 else ("30S" if cd <= 30 else "1分钟")
+            lines.append(f"【调息时间】: {cd} 秒（对应 {win} 档）")
         if cost is not None:
             lines.append(f"【消耗点数】: {cost} 点（占用 {cost} 个技能格）")
         if detail:
@@ -1708,8 +1713,8 @@ class CoreSkillsConfigDialog(QDialog):
 
         # 底部数据说明
         lbl_data_note = QLabel(
-            "ℹ️ 档位按招式级别划分（暂定规则）：1级 → 10S，2级 → 30S，3级 → 1分钟；"
-            "无级别标注为「-」，默认归 10S 档可手动划分。\n"
+            "ℹ️ 档位按 jx3box 调息时间划分：10秒 → 10S，30秒 → 30S，60秒 → 1分钟；"
+            "25/50/300秒就近归档，无调息/无数据归 10S 档可手动划分。\n"
             "　　消耗点数 = 占用的技能格数（数据来自 jx3box，覆盖全部 156 个招式）。"
             "百战最多 3 个技能槽位，携带招式点数合计 ≤3。"
             "打击类型（打精/打耐/回复）取自招式描述。"

@@ -23,6 +23,7 @@ from bz_core_skills import (
     get_top_candidate_skills,
     get_verified_cooldowns,
     get_skill_levels,
+    get_skill_cooldowns,
     SKILL_LEVEL_WINDOW,
     CORE_CATEGORY_SLOTS,
 )
@@ -97,25 +98,22 @@ def test_get_verified_cooldowns_only_returns_id_matched():
     assert len(verified) < 30
 
 
-def test_derive_only_tiers_verified_cooldown_skills():
-    """档位分配合规性：1分钟/30S 档的招式必须有级别(2-3级)或经过验证的冷却"""
+def test_derive_only_tiers_cooldown_skills():
+    """档位分配合规性：1分钟/30S 档的招式必须有 jx3box 调息数据"""
+    from bz_core_skills import get_skill_cooldowns
     cats = derive_core_skill_categories()
-    lv = get_skill_levels()
-    verified = get_verified_cooldowns()
+    cds = get_skill_cooldowns()
 
     for c in cats:
         if c["window"] in ("1分钟", "30S"):
             for sname in c["candidates"]:
-                level = lv.get(sname)
-                cd = verified.get(sname)
-                ok = (level is not None) or (cd is not None)
-                assert ok, f"{sname} 既无级别又无验证冷却，不应分入 {c['window']} 档"
-                if level is not None:
-                    # 级别规则：1级=10S, 2级=30S, 3级=1分钟
-                    if c["window"] == "1分钟":
-                        assert level == 3, f"{sname} 级别={level} 不应分入 1分钟 档"
-                    elif c["window"] == "30S":
-                        assert level == 2, f"{sname} 级别={level} 不应分入 30S 档"
+                cd = cds.get(sname)
+                assert cd is not None, f"{sname} 无调息数据，不应分入 {c['window']} 档"
+                # 分档规则：<=10 秒 -> 10S, <=30 秒 -> 30S, 其余 -> 1分钟
+                if c["window"] == "1分钟":
+                    assert cd > 30, f"{sname} 调息={cd}秒 不应分入 1分钟 档"
+                elif c["window"] == "30S":
+                    assert 10 < cd <= 30, f"{sname} 调息={cd}秒 不应分入 30S 档"
 
 
 def test_get_skill_levels_parses_dbm_note():
@@ -142,6 +140,54 @@ def test_get_skill_levels_parses_dbm_note():
 
     # 映射规则常量正确
     assert SKILL_LEVEL_WINDOW == {1: "10S", 2: "30S", 3: "1分钟"}
+
+
+def test_get_skill_cooldowns_jx3box_data():
+    """
+    调息时间回归测试：数据源为 jx3box (bz_skill_cd.json)，
+    覆盖全部 156 个招式，其中 146 个有明确数值，10 个为 None（网页显示 '-'）。
+    分档规则：<=10 秒 -> 10S, <=30 秒 -> 30S, 其余 -> 1分钟。
+    """
+    from bz_core_skills import get_skill_cooldowns
+    from collections import Counter
+    cds = get_skill_cooldowns()
+    assert isinstance(cds, dict)
+    assert len(cds) == 156
+
+    # 数值只能是 int 或 None
+    assert all(v is None or isinstance(v, int) for v in cds.values())
+
+    # 已知样例（与网页一致）
+    assert cds.get("黑煞落贪狼") == 60
+    assert cds.get("空穴来风") == 10
+    assert cds.get("一闪天诛") == 30
+    assert cds.get("霸山式") == 25
+    assert cds.get("俯阵熊突") == 50
+    assert cds.get("机铠原型机") == 300
+    # 0 = 无调息时间
+    assert cds.get("华散曲黑洞") == 0
+    assert cds.get("五灵加护") == 0
+    assert cds.get("龙象般若功") == 0
+    # 无调息数据（网页 '-'）
+    for n in ("破竹返", "顽抗", "杀红眼", "归潮长生法", "凌云步",
+              "画影飞赴", "仇恨咆哮", "鲨之息", "天养生息法", "角抵技巧"):
+        assert cds.get(n) is None, f"{n} 应无调息数据"
+
+    # 分布固定
+    dist = Counter(cds.values())
+    assert dist == Counter({30: 55, 10: 52, 60: 24, 0: 6, 25: 6, None: 10, 50: 2, 300: 1})
+
+
+def test_skill_cd_file_is_jx3box_sourced():
+    """调息时间数据文件应标注 jx3box 来源并覆盖全部招式"""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    fp = os.path.join(root, "data", "bz_skill_cd.json")
+    assert os.path.exists(fp), "缺少 bz_skill_cd.json"
+    with open(fp, encoding="utf-8") as f:
+        data = json.load(f)
+    assert "node.jx3box.com" in data.get("source", "")
+    assert data.get("found") == 146
+    assert len(data.get("cooldowns", {})) == 156
 
 
 def test_get_skill_costs_parses_dbm_cost():
@@ -179,8 +225,8 @@ def test_get_skill_costs_parses_dbm_cost():
     assert dict(Counter(costs.values())) == {1: 146, 2: 6, 3: 4}
 
     # 点数与级别相互独立：龙象般若功 3点但只有 2级
-    from bz_core_skills import get_skill_levels
-    assert get_skill_levels().get("龙象般若功") == 2
+    from bz_core_skills import get_skill_cooldowns
+    assert get_skill_cooldowns().get("黑煞落贪狼") == 60
 
 
 def test_skill_cost_file_is_jx3box_sourced():
@@ -246,8 +292,8 @@ def test_cost_filter_in_config_dialog(qapp, tmp_path):
     dlg.deleteLater()
 
 
-def test_no_level_shown_as_dash(qapp, tmp_path):
-    """无级别的招式在列表中应标注为 '-'，不是 '无级别'"""
+def test_no_cd_shown_as_dash(qapp, tmp_path):
+    """无调息数据的招式在列表中应标注为 '-'，不是 '无调息数据'"""
     cfg = tmp_path / "cfg.json"
     cfg.write_text(json.dumps({"categories": [
         {"group": "打精", "window": "10S", "candidates": [], "enabled": True, "display_count": 1},
@@ -255,39 +301,42 @@ def test_no_level_shown_as_dash(qapp, tmp_path):
 
     dlg = CoreSkillsConfigDialog(config_path=str(cfg))
 
-    # 特制金创药无级别 -> 标注 '-'，且不得出现 '无级别' 字样
-    label = dlg._format_skill_label("特制金创药")
+    # 破竹返 无调息数据 -> 标注 '-'，且不得出现 '无调息数据' 字样
+    label = dlg._format_skill_label("破竹返")
     assert "·-" in label
-    assert "无级别" not in label
+    assert "无调息数据" not in label
 
-    tip = dlg._get_skill_tooltip("特制金创药")
-    assert "【招式级别】: -" in tip
-    assert "无级别数据" not in tip
+    tip = dlg._get_skill_tooltip("破竹返")
+    assert "【调息时间】: -" in tip
 
-    # 有级别的仍正常显示
-    assert "3级/1分钟" in dlg._format_skill_label("华散曲黑洞")
+    # 有调息数据的按秒数显示
+    assert "·60秒" in dlg._format_skill_label("黑煞落贪狼")
+    assert "·无调息" in dlg._format_skill_label("华散曲黑洞")  # 0 = 无调息时间
+    assert "·25秒" in dlg._format_skill_label("霸山式")
     # 点数也应标注
     assert "3点" in dlg._format_skill_label("华散曲黑洞")
 
     dlg.deleteLater()
 
 
-def test_derive_uses_level_as_primary_tier_rule():
-    """级别应作为分档主依据：3级招式进 1分钟档，2级进 30S 档，1级进 10S 档"""
+def test_derive_uses_cd_as_primary_tier_rule():
+    """调息时间应作为分档主依据：60秒进 1分钟档，30秒进 30S 档，10秒进 10S 档"""
     cats = derive_core_skill_categories()
-    lv = get_skill_levels()
+    cds = get_skill_cooldowns()
     by_slot = {(c["group"], c["window"]): c["candidates"] for c in cats}
 
-    # 黑煞落贪狼 3级 且为打耐 -> 打耐·1分钟
+    # 黑煞落贪狼 60秒 且为打耐 -> 打耐·1分钟
+    assert cds.get("黑煞落贪狼") == 60
     assert "黑煞落贪狼" in by_slot[("打耐", "1分钟")]
-    # 定波式 2级 且为打精 -> 打精·30S
+    # 定波式 30秒 且为打精 -> 打精·30S
+    assert cds.get("定波式") == 30
     assert "定波式" in by_slot[("打精", "30S")]
 
-    # 反向校验：每个 1级招式都不应出现在 1分钟/30S 档
+    # 反向校验：每个 10秒招式都不应出现在 1分钟/30S 档
     for (grp, win), names in by_slot.items():
         if win in ("1分钟", "30S"):
             for n in names:
-                assert lv.get(n) != 1, f"{n} 是1级却被分入 {win} 档"
+                assert cds.get(n) not in (10,), f"{n} 是10秒却被分入 {win} 档"
 
 
 def test_load_core_skill_categories_normal():
@@ -310,21 +359,22 @@ def test_load_core_skill_categories_normal():
         assert "enabled" in cats[i]
         assert "display_count" in cats[i]
 
-    # 验证关键候选技能归类（按级别分档：1级=10S / 2级=30S / 3级=1分钟）
-    # 打精·1分钟: 3级招式
+    # 验证关键候选技能归类（按 jx3box 调息时间分档：10秒=10S / 30秒=30S / 60秒=1分钟）
+    # 打精·1分钟: 60秒打精招式（含 300 秒就近归档）
     jing_1m = next(c["candidates"] for c in cats if c["group"] == "打精" and c["window"] == "1分钟")
-    assert len(jing_1m) == 3
+    assert len(jing_1m) == 6
     assert "帝骖龙翔" in jing_1m
-    # 打精·10S: 1级+无级别招式
+    assert "俯阵熊突" in jing_1m   # 50秒 -> 1分钟档
+    # 打精·10S: 10秒/无数据/无调息招式
     jing_10s = next(c["candidates"] for c in cats if c["group"] == "打精" and c["window"] == "10S")
-    assert "厄毒爆发" in jing_10s  # 无级别，默认归 10S
-    assert "蚀骨之花" in jing_10s  # 无级别，默认归 10S
-    assert len(jing_10s) == 32
+    assert "一刀柄锤" in jing_10s   # 10秒 打精
+    assert "破竹返" not in jing_10s # 破竹返无打击描述，不参与打精/打耐分类
+    assert len(jing_10s) == 17
 
     nai_1m = next(c["candidates"] for c in cats if c["group"] == "打耐" and c["window"] == "1分钟")
-    assert "黑煞落贪狼" in nai_1m  # 3级，cd=60 已验证
-    assert "疯狂疾走" in nai_1m    # 3级
-    assert len(nai_1m) == 3
+    assert "黑煞落贪狼" in nai_1m  # 60秒
+    assert "疯狂疾走" in nai_1m    # 60秒
+    assert len(nai_1m) == 6
 
     hf_core = next(c["candidates"] for c in cats if c["group"] == "回复" and c["window"] == "核心")
     assert "万蛇骨" in hf_core

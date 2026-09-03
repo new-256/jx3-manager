@@ -179,6 +179,38 @@ def get_verified_cooldowns(
     return verified
 
 
+def get_skill_cooldowns(cd_path: Optional[str] = None) -> Dict[str, Optional[int]]:
+    """
+    从 bz_skill_cd.json (jx3box 来源) 读取招式调息时间 {招式名: 秒数或 None}。
+
+    数据来源: https://node.jx3box.com/monster/skills 的 ParsedSkill.tooltip，
+    从中提取 'N秒调息' / '无调息时间'。覆盖全部 156 个招式，其中 146 个有
+    明确数值（0 表示无调息时间），10 个无调息数据（网页显示 '-'，值为 None）。
+
+    分布：0秒 6 / 10秒 52 / 25秒 6 / 30秒 55 / 50秒 2 / 60秒 24 / 300秒 1。
+    """
+    actual = _find_data_file("bz_skill_cd.json", cd_path)
+    if not actual or not os.path.exists(actual):
+        return {}
+    try:
+        with open(actual, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        raw = data.get("cooldowns", {})
+        out: Dict[str, Optional[int]] = {}
+        for name, cd in raw.items():
+            if cd is None:
+                out[name] = None
+            else:
+                try:
+                    out[name] = int(cd)
+                except (ValueError, TypeError):
+                    out[name] = None
+        return out
+    except Exception as e:
+        logger.warning(f"读取 bz_skill_cd.json 失败: {e}")
+    return {}
+
+
 def derive_core_skill_categories(
     desc_path: Optional[str] = None,
     enriched_path: Optional[str] = None
@@ -191,17 +223,16 @@ def derive_core_skill_categories(
       - 描述含 '耐力打击' -> 打耐
       - 描述含 '恢复' 且 ('气血' or '精神' or '耐力') -> 回复
 
-    档位规则（按 bz_skill_meta.json 的 dbm_note 中的 N级，级别是权威数据）：
-      - 1级 -> 10S  档
-      - 2级 -> 30S  档
-      - 3级 -> 1分钟 档
-      - 无级别 -> 10S 档（待用户手动划分）
+    档位规则（按 bz_skill_cd.json 的 jx3box 调息时间，实测与级别基本对应）：
+      - 10秒       -> 10S   档
+      - 30秒       -> 30S   档
+      - 60秒       -> 1分钟 档
+      - 0秒(无调息)/25/50/300秒 -> 就近归档 (0/10->10S, 25/30/50->30S, 60/300->1分钟)
+      - 无调息数据 (None, 网页显示 '-') -> 10S 档（待手动划分）
       - 回复类统一归入 '核心' 档
       - 候选按招式名排序；默认补全 enabled=True, display_count=1
 
-    覆盖统计：156 个招式中 61 个有级别，95 个无级别（默认归 10S 档）。
-    冷却数据（enriched、验证冷却）因早期按名称匹配通用技能库、仅 8% 可信，
-    已不作为分档依据。
+    覆盖统计：156 个招式中 146 个有明确调息时间，10 个无数据归 10S 档。
     """
     actual_desc_path = _find_data_file("bz_skill_desc.json", desc_path)
 
@@ -213,14 +244,18 @@ def derive_core_skill_categories(
         except Exception as e:
             logger.warning(f"读取 bz_skill_desc.json 失败: {e}")
 
-    lv = get_skill_levels()
+    cds = get_skill_cooldowns()
 
     def window_for(name: str) -> str:
-        """按级别分档，无级别归 10S"""
-        level = lv.get(name)
-        if level is not None:
-            return SKILL_LEVEL_WINDOW.get(level, "10S")
-        return "10S"
+        """按 jx3box 调息时间分档，无数据归 10S"""
+        cd = cds.get(name)
+        if cd is None:
+            return "10S"
+        if cd <= 10:            # 0(无调息)/10 秒
+            return "10S"
+        if cd <= 30:            # 25/30 秒
+            return "30S"
+        return "1分钟"          # 50/60/300 秒
 
     buckets: Dict[Tuple[str, str], List[str]] = {slot: [] for slot in CORE_CATEGORY_SLOTS}
 
