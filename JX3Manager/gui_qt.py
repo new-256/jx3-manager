@@ -6,6 +6,7 @@ import sys
 import json
 import csv
 import datetime
+from typing import List, Dict, Any, Tuple, Optional
 from PIL import Image
 
 from PyQt6.QtWidgets import (
@@ -13,7 +14,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QComboBox, QLineEdit, QTabWidget, QTableWidget,
     QTableWidgetItem, QHeaderView, QScrollArea, QFrame, QDialog, QMenu,
     QFileDialog, QMessageBox, QToolTip, QGridLayout, QSizePolicy, QCheckBox, QDoubleSpinBox, QGroupBox, QStackedWidget, QInputDialog, QTextEdit,
-    QAbstractItemView
+    QAbstractItemView, QListWidget, QListWidgetItem, QSpinBox, QSplitter
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QSettings, QUrl
 from PyQt6.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QCursor, QBrush, QDesktopServices
@@ -1361,23 +1362,661 @@ class CompactSkillsExportWidget(QWidget):
         return card
 
 
+class CoreSkillsConfigDialog(QDialog):
+    """百战技能分类配置弹窗"""
+    def __init__(self, config_path: Optional[str] = None, parent=None):
+        super().__init__(parent)
+        self.config_path = config_path
+        self.saved = False
+
+        from bz_core_skills import (
+            load_core_skill_categories,
+            save_core_skill_categories,
+            derive_core_skill_categories,
+            get_all_known_skills,
+            get_skill_meta,
+            CORE_CATEGORY_SLOTS,
+        )
+        self._load_core_skill_categories = load_core_skill_categories
+        self._save_core_skill_categories = save_core_skill_categories
+        self._derive_core_skill_categories = derive_core_skill_categories
+        self._get_all_known_skills = get_all_known_skills
+        self._get_skill_meta = get_skill_meta
+        self._core_category_slots = CORE_CATEGORY_SLOTS
+
+        # 深拷贝载入配置，避免编辑过程中直接污染
+        raw_cats = self._load_core_skill_categories(self.config_path)
+        self.categories = [
+            {
+                "group": str(c.get("group", "")),
+                "window": str(c.get("window", "")),
+                "candidates": list(c.get("candidates", [])),
+                "enabled": bool(c.get("enabled", True)),
+                "display_count": max(1, int(c.get("display_count", 1))),
+            }
+            for c in raw_cats
+        ]
+
+        self.all_skills = self._get_all_known_skills()
+        self._skill_meta_cache = {}
+        for sname in self.all_skills:
+            self._skill_meta_cache[sname] = self._get_skill_meta(sname)
+
+        self.current_cat_idx = -1
+        self._is_updating_ui = False
+
+        self.setWindowTitle("⚙ 百战技能分类配置")
+        self.resize(1020, 700)
+        icon = get_app_icon()
+        if not icon.isNull():
+            self.setWindowIcon(icon)
+
+        self.setStyleSheet("""
+            QDialog { background-color: #1e1e2d; color: #ffffff; font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; }
+            QLabel { color: #eee; }
+            QPushButton#PrimaryBtn { background-color: #0d47a1; color: white; font-weight: bold; border-radius: 4px; padding: 6px 14px; }
+            QPushButton#PrimaryBtn:hover { background-color: #1565c0; }
+            QPushButton#GreenBtn { background-color: #2e7d32; color: white; font-weight: bold; border-radius: 4px; padding: 6px 14px; }
+            QPushButton#GreenBtn:hover { background-color: #388e3c; }
+            QPushButton#DangerBtn { background-color: #8e2424; color: white; font-weight: bold; border-radius: 4px; padding: 5px 10px; }
+            QPushButton#DangerBtn:hover { background-color: #b71c1c; }
+            QPushButton#DefaultBtn { background-color: #2b2b3d; color: #e0e0e0; border: 1px solid #444460; border-radius: 4px; padding: 6px 12px; }
+            QPushButton#DefaultBtn:hover { background-color: #38384f; }
+            QPushButton#SmallBtn { background-color: #2b2b3d; color: #ffffff; border: 1px solid #444460; border-radius: 4px; padding: 4px 8px; font-size: 12px; }
+            QPushButton#SmallBtn:hover { background-color: #38384f; }
+            QListWidget { background-color: #161622; color: #ffffff; border: 1px solid #333345; border-radius: 6px; }
+            QListWidget::item { padding: 4px 6px; }
+            QListWidget::item:selected { background-color: #2b3b5c; }
+            QLineEdit, QSpinBox { background-color: #161622; color: #ffffff; border: 1px solid #444460; border-radius: 4px; padding: 4px 8px; }
+            QScrollBar:vertical { background: #161622; width: 10px; }
+            QScrollBar::handle:vertical { background: #3b3b54; border-radius: 5px; }
+            QScrollBar:horizontal { background: #161622; height: 10px; }
+            QScrollBar::handle:horizontal { background: #3b3b54; border-radius: 5px; }
+        """)
+
+        self.init_ui()
+
+    def _format_skill_label(self, sname: str) -> str:
+        meta = self._skill_meta_cache.get(sname) or self._get_skill_meta(sname)
+        cd = meta.get("cooldown")
+        cd_str = f"cd{cd}s" if cd is not None else "cd-"
+        return f"{sname} ({cd_str})"
+
+    def _get_skill_tooltip(self, sname: str) -> str:
+        meta = self._skill_meta_cache.get(sname) or self._get_skill_meta(sname)
+        detail = meta.get("detail", "")
+        if not detail:
+            return sname
+        short = detail[:200] + ("..." if len(detail) > 200 else "")
+        cd = meta.get("cooldown")
+        cd_info = f"【冷却时间】: {cd} 秒\n" if cd is not None else ""
+        return f"【{sname}】\n{cd_info}{short}"
+
+    def init_ui(self):
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(16, 16, 16, 16)
+        main_layout.setSpacing(12)
+
+        content_layout = QHBoxLayout()
+        content_layout.setSpacing(14)
+
+        # ------------------- 左侧分类列表区 (~320px) -------------------
+        left_box = QVBoxLayout()
+        left_box.setSpacing(8)
+
+        lbl_left_title = QLabel("📁 百战技能分类列表（勾选表示在总览展示）")
+        lbl_left_title.setStyleSheet("font-weight: bold; font-size: 13px; color: #40a9ff;")
+        left_box.addWidget(lbl_left_title)
+
+        self.list_categories = QListWidget()
+        self.list_categories.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.list_categories.currentRowChanged.connect(self.on_category_selected)
+        self.list_categories.itemChanged.connect(self.on_category_item_changed)
+        left_box.addWidget(self.list_categories)
+
+        # 左侧操作按钮网格
+        btn_grid_top = QHBoxLayout()
+        btn_grid_top.setSpacing(6)
+        self.btn_add_cat = QPushButton("➕ 新增分类")
+        self.btn_add_cat.setObjectName("SmallBtn")
+        self.btn_add_cat.clicked.connect(self.add_category)
+        btn_grid_top.addWidget(self.btn_add_cat)
+
+        self.btn_copy_cat = QPushButton("📋 复制")
+        self.btn_copy_cat.setObjectName("SmallBtn")
+        self.btn_copy_cat.clicked.connect(self.copy_category)
+        btn_grid_top.addWidget(self.btn_copy_cat)
+
+        self.btn_rename_cat = QPushButton("✏ 重命名")
+        self.btn_rename_cat.setObjectName("SmallBtn")
+        self.btn_rename_cat.clicked.connect(self.rename_category)
+        btn_grid_top.addWidget(self.btn_rename_cat)
+
+        self.btn_del_cat = QPushButton("🗑 删除")
+        self.btn_del_cat.setObjectName("DangerBtn")
+        self.btn_del_cat.clicked.connect(self.delete_category)
+        btn_grid_top.addWidget(self.btn_del_cat)
+
+        left_box.addLayout(btn_grid_top)
+
+        btn_grid_order = QHBoxLayout()
+        btn_grid_order.setSpacing(6)
+        self.btn_cat_up = QPushButton("↑ 上移分类")
+        self.btn_cat_up.setObjectName("SmallBtn")
+        self.btn_cat_up.clicked.connect(self.move_up_category)
+        btn_grid_order.addWidget(self.btn_cat_up)
+
+        self.btn_cat_down = QPushButton("↓ 下移分类")
+        self.btn_cat_down.setObjectName("SmallBtn")
+        self.btn_cat_down.clicked.connect(self.move_down_category)
+        btn_grid_order.addWidget(self.btn_cat_down)
+
+        left_box.addLayout(btn_grid_order)
+
+        left_widget = QWidget()
+        left_widget.setLayout(left_box)
+        left_widget.setFixedWidth(330)
+        content_layout.addWidget(left_widget)
+
+        # ------------------- 右侧编辑区 -------------------
+        self.right_stack = QStackedWidget()
+
+        # Page 0: 未选中任何分类时的占位
+        empty_page = QWidget()
+        empty_layout = QVBoxLayout(empty_page)
+        lbl_empty = QLabel("👈 请在左侧选择或新增一个技能分类进行详细配置")
+        lbl_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_empty.setStyleSheet("font-size: 15px; color: #777799;")
+        empty_layout.addWidget(lbl_empty)
+        self.right_stack.addWidget(empty_page)
+
+        # Page 1: 具体的分类编辑器
+        edit_page = QWidget()
+        edit_layout = QVBoxLayout(edit_page)
+        edit_layout.setContentsMargins(4, 0, 0, 0)
+        edit_layout.setSpacing(10)
+
+        # 顶部：当前分类标题 + 展示技能数量
+        top_edit_bar = QHBoxLayout()
+        top_edit_bar.setSpacing(12)
+
+        self.lbl_cat_title = QLabel("📌 分类：-")
+        self.lbl_cat_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #69c0ff;")
+        top_edit_bar.addWidget(self.lbl_cat_title)
+
+        top_edit_bar.addStretch()
+
+        lbl_spin = QLabel("展示技能数量:")
+        lbl_spin.setStyleSheet("font-weight: bold;")
+        top_edit_bar.addWidget(lbl_spin)
+
+        self.spin_display_count = QSpinBox()
+        self.spin_display_count.setRange(1, 10)
+        self.spin_display_count.setValue(1)
+        self.spin_display_count.setFixedWidth(65)
+        self.spin_display_count.setToolTip("该分类在总览表格中展示前 N 个已学最高等级技能")
+        self.spin_display_count.valueChanged.connect(self.on_display_count_changed)
+        top_edit_bar.addWidget(self.spin_display_count)
+
+        edit_layout.addLayout(top_edit_bar)
+
+        # 中部：双列表候选编辑器
+        dual_lists_layout = QHBoxLayout()
+        dual_lists_layout.setSpacing(10)
+
+        # 左列表：全部技能候选池
+        all_skills_box = QVBoxLayout()
+        all_skills_box.setSpacing(6)
+
+        lbl_all_pool = QLabel(f"全部已知技能 ({len(self.all_skills)} 个)")
+        lbl_all_pool.setStyleSheet("font-weight: bold; color: #b0b8c8;")
+        all_skills_box.addWidget(lbl_all_pool)
+
+        self.txt_skill_search = QLineEdit()
+        self.txt_skill_search.setPlaceholderText("🔍 搜索技能名称...")
+        self.txt_skill_search.textChanged.connect(self.filter_all_skills)
+        all_skills_box.addWidget(self.txt_skill_search)
+
+        self.list_all_skills = QListWidget()
+        self.list_all_skills.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.list_all_skills.itemDoubleClicked.connect(self.on_all_skill_double_clicked)
+        all_skills_box.addWidget(self.list_all_skills)
+
+        dual_lists_layout.addLayout(all_skills_box, 1)
+
+        # 中间操作按钮
+        mid_btns_box = QVBoxLayout()
+        mid_btns_box.setSpacing(10)
+        mid_btns_box.addStretch()
+
+        self.btn_add_cand = QPushButton("添加 ➡")
+        self.btn_add_cand.setObjectName("SmallBtn")
+        self.btn_add_cand.setToolTip("将左侧选中的技能加入本分类候选列表")
+        self.btn_add_cand.clicked.connect(self.add_selected_candidates)
+        mid_btns_box.addWidget(self.btn_add_cand)
+
+        self.btn_remove_cand = QPushButton("⬅ 移除")
+        self.btn_remove_cand.setObjectName("SmallBtn")
+        self.btn_remove_cand.setToolTip("从右侧候选列表中移除选中的技能")
+        self.btn_remove_cand.clicked.connect(self.remove_selected_candidates)
+        mid_btns_box.addWidget(self.btn_remove_cand)
+
+        mid_btns_box.addSpacing(16)
+
+        self.btn_derive_slot = QPushButton("⚡ 自动推导")
+        self.btn_derive_slot.setObjectName("DefaultBtn")
+        self.btn_derive_slot.setToolTip("按规则推导当前 group·window 的标准候选技能")
+        self.btn_derive_slot.clicked.connect(self.derive_current_slot)
+        mid_btns_box.addWidget(self.btn_derive_slot)
+
+        mid_btns_box.addStretch()
+        dual_lists_layout.addLayout(mid_btns_box)
+
+        # 右列表：本分类候选技能
+        cand_box = QVBoxLayout()
+        cand_box.setSpacing(6)
+
+        self.lbl_cand_title = QLabel("本分类候选技能（按优先级排序）")
+        self.lbl_cand_title.setStyleSheet("font-weight: bold; color: #52c41a;")
+        cand_box.addWidget(self.lbl_cand_title)
+
+        self.list_candidates = QListWidget()
+        self.list_candidates.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.list_candidates.itemDoubleClicked.connect(self.on_candidate_double_clicked)
+        cand_box.addWidget(self.list_candidates)
+
+        cand_order_bar = QHBoxLayout()
+        cand_order_bar.setSpacing(8)
+
+        self.btn_cand_up = QPushButton("↑ 上移优先级")
+        self.btn_cand_up.setObjectName("SmallBtn")
+        self.btn_cand_up.setToolTip("提高候选技能优先级（等级相同时排在前面的优先展示）")
+        self.btn_cand_up.clicked.connect(self.move_up_candidate)
+        cand_order_bar.addWidget(self.btn_cand_up)
+
+        self.btn_cand_down = QPushButton("↓ 下移优先级")
+        self.btn_cand_down.setObjectName("SmallBtn")
+        self.btn_cand_down.setToolTip("降低候选技能优先级")
+        self.btn_cand_down.clicked.connect(self.move_down_candidate)
+        cand_order_bar.addWidget(self.btn_cand_down)
+
+        cand_box.addLayout(cand_order_bar)
+
+        dual_lists_layout.addLayout(cand_box, 1)
+
+        edit_layout.addLayout(dual_lists_layout)
+        self.right_stack.addWidget(edit_page)
+
+        content_layout.addWidget(self.right_stack, 1)
+        main_layout.addLayout(content_layout)
+
+        # ------------------- 底部按钮区 -------------------
+        bottom_bar = QHBoxLayout()
+        bottom_bar.setSpacing(12)
+
+        self.btn_reset_default = QPushButton("🔄 恢复默认 7 档")
+        self.btn_reset_default.setObjectName("DefaultBtn")
+        self.btn_reset_default.setToolTip("使用自动推导规则恢复默认的 7 档分类配置")
+        self.btn_reset_default.clicked.connect(self.reset_to_default)
+        bottom_bar.addWidget(self.btn_reset_default)
+
+        bottom_bar.addStretch()
+
+        self.btn_cancel = QPushButton("取消")
+        self.btn_cancel.setObjectName("DefaultBtn")
+        self.btn_cancel.clicked.connect(self.reject)
+        bottom_bar.addWidget(self.btn_cancel)
+
+        self.btn_save = QPushButton("💾 保存配置")
+        self.btn_save.setObjectName("PrimaryBtn")
+        self.btn_save.clicked.connect(self.save_config)
+        bottom_bar.addWidget(self.btn_save)
+
+        main_layout.addLayout(bottom_bar)
+
+        # 填充全部技能列表
+        self.populate_all_skills_list()
+
+        # 填充左侧分类列表
+        self.refresh_categories_list(select_idx=0 if self.categories else -1)
+
+    def populate_all_skills_list(self):
+        self.list_all_skills.clear()
+        for sname in self.all_skills:
+            item = QListWidgetItem(self._format_skill_label(sname))
+            item.setData(Qt.ItemDataRole.UserRole, sname)
+            item.setToolTip(self._get_skill_tooltip(sname))
+            self.list_all_skills.addItem(item)
+
+    def filter_all_skills(self, text: str):
+        query = text.strip().lower()
+        for i in range(self.list_all_skills.count()):
+            item = self.list_all_skills.item(i)
+            sname = item.data(Qt.ItemDataRole.UserRole) or item.text()
+            item.setHidden(bool(query and query not in sname.lower()))
+
+    def _cat_item_text(self, cat: dict) -> str:
+        grp = cat.get("group", "")
+        win = cat.get("window", "")
+        c_count = len(cat.get("candidates", []))
+        d_count = cat.get("display_count", 1)
+        return f"{grp}·{win}  ({c_count}候选 / 显示{d_count}个)"
+
+    def refresh_categories_list(self, select_idx: int = -1):
+        self._is_updating_ui = True
+        self.list_categories.clear()
+
+        for cat in self.categories:
+            item = QListWidgetItem(self._cat_item_text(cat))
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked if cat.get("enabled", True) else Qt.CheckState.Unchecked)
+            self.list_categories.addItem(item)
+
+        self._is_updating_ui = False
+
+        if 0 <= select_idx < len(self.categories):
+            self.list_categories.setCurrentRow(select_idx)
+        elif len(self.categories) > 0:
+            self.list_categories.setCurrentRow(0)
+        else:
+            self.on_category_selected(-1)
+
+    def update_current_cat_item_text(self):
+        if 0 <= self.current_cat_idx < self.list_categories.count() and self.current_cat_idx < len(self.categories):
+            self._is_updating_ui = True
+            cat = self.categories[self.current_cat_idx]
+            item = self.list_categories.item(self.current_cat_idx)
+            item.setText(self._cat_item_text(cat))
+            self._is_updating_ui = False
+
+    def on_category_item_changed(self, item: QListWidgetItem):
+        if self._is_updating_ui:
+            return
+        row = self.list_categories.row(item)
+        if 0 <= row < len(self.categories):
+            self.categories[row]["enabled"] = (item.checkState() == Qt.CheckState.Checked)
+
+    def on_category_selected(self, row: int):
+        self.current_cat_idx = row
+        if row < 0 or row >= len(self.categories):
+            self.right_stack.setCurrentIndex(0)
+            return
+
+        self.right_stack.setCurrentIndex(1)
+        cat = self.categories[row]
+        self.lbl_cat_title.setText(f"📌 分类：{cat.get('group', '')} · {cat.get('window', '')}")
+
+        self._is_updating_ui = True
+        self.spin_display_count.setValue(cat.get("display_count", 1))
+        self._is_updating_ui = False
+
+        self.refresh_candidates_list()
+
+    def on_display_count_changed(self, val: int):
+        if self._is_updating_ui or self.current_cat_idx < 0 or self.current_cat_idx >= len(self.categories):
+            return
+        self.categories[self.current_cat_idx]["display_count"] = val
+        self.update_current_cat_item_text()
+
+    def refresh_candidates_list(self):
+        if self.current_cat_idx < 0 or self.current_cat_idx >= len(self.categories):
+            self.list_candidates.clear()
+            return
+
+        cat = self.categories[self.current_cat_idx]
+        candidates = cat.get("candidates", [])
+        self.lbl_cand_title.setText(f"本分类候选技能 ({len(candidates)} 个，按优先级从高到低)")
+
+        self.list_candidates.clear()
+        for sname in candidates:
+            item = QListWidgetItem(self._format_skill_label(sname))
+            item.setData(Qt.ItemDataRole.UserRole, sname)
+            item.setToolTip(self._get_skill_tooltip(sname))
+            self.list_candidates.addItem(item)
+
+    def add_category(self):
+        grp, ok1 = QInputDialog.getText(self, "新增分类", "请输入分类名 (group)：\n例如：打精、打耐、回复、输出、控制")
+        if not ok1 or not grp.strip():
+            return
+        win, ok2 = QInputDialog.getText(self, "新增分类", "请输入档位名 (window)：\n例如：1分钟、30S、10S、核心、爆发")
+        if not ok2 or not win.strip():
+            return
+
+        grp = grp.strip()
+        win = win.strip()
+        for c in self.categories:
+            if c.get("group") == grp and c.get("window") == win:
+                QMessageBox.warning(self, "提示", f"已存在相同分类【{grp}·{win}】，不能重复添加。")
+                return
+
+        new_cat = {
+            "group": grp,
+            "window": win,
+            "candidates": [],
+            "enabled": True,
+            "display_count": 1,
+        }
+        self.categories.append(new_cat)
+        self.refresh_categories_list(select_idx=len(self.categories) - 1)
+
+    def copy_category(self):
+        idx = self.list_categories.currentRow()
+        if idx < 0 or idx >= len(self.categories):
+            return
+        cur = self.categories[idx]
+
+        win, ok = QInputDialog.getText(
+            self, "复制分类",
+            f"为分类【{cur.get('group', '')}】输入新档位名：",
+            text=f"{cur.get('window', '')}_副本"
+        )
+        if not ok or not win.strip():
+            return
+
+        win = win.strip()
+        grp = cur.get("group", "")
+        for c in self.categories:
+            if c.get("group") == grp and c.get("window") == win:
+                QMessageBox.warning(self, "提示", f"已存在相同分类【{grp}·{win}】。")
+                return
+
+        new_cat = {
+            "group": grp,
+            "window": win,
+            "candidates": list(cur.get("candidates", [])),
+            "enabled": cur.get("enabled", True),
+            "display_count": cur.get("display_count", 1),
+        }
+        self.categories.insert(idx + 1, new_cat)
+        self.refresh_categories_list(select_idx=idx + 1)
+
+    def rename_category(self):
+        idx = self.list_categories.currentRow()
+        if idx < 0 or idx >= len(self.categories):
+            return
+        cur = self.categories[idx]
+
+        grp, ok1 = QInputDialog.getText(self, "重命名分类", "请输入分类名 (group)：", text=cur.get("group", ""))
+        if not ok1 or not grp.strip():
+            return
+        win, ok2 = QInputDialog.getText(self, "重命名分类", "请输入档位名 (window)：", text=cur.get("window", ""))
+        if not ok2 or not win.strip():
+            return
+
+        grp = grp.strip()
+        win = win.strip()
+        for i, c in enumerate(self.categories):
+            if i != idx and c.get("group") == grp and c.get("window") == win:
+                QMessageBox.warning(self, "提示", f"已存在相同分类【{grp}·{win}】。")
+                return
+
+        cur["group"] = grp
+        cur["window"] = win
+        self.refresh_categories_list(select_idx=idx)
+
+    def delete_category(self):
+        idx = self.list_categories.currentRow()
+        if idx < 0 or idx >= len(self.categories):
+            return
+        cur = self.categories[idx]
+
+        res = QMessageBox.question(
+            self, "确认删除",
+            f"确定要删除分类【{cur.get('group', '')}·{cur.get('window', '')}】吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if res == QMessageBox.StandardButton.Yes:
+            del self.categories[idx]
+            next_idx = min(idx, len(self.categories) - 1)
+            self.refresh_categories_list(select_idx=next_idx)
+
+    def move_up_category(self):
+        idx = self.list_categories.currentRow()
+        if idx > 0:
+            self.categories[idx], self.categories[idx - 1] = self.categories[idx - 1], self.categories[idx]
+            self.refresh_categories_list(select_idx=idx - 1)
+
+    def move_down_category(self):
+        idx = self.list_categories.currentRow()
+        if 0 <= idx < len(self.categories) - 1:
+            self.categories[idx], self.categories[idx + 1] = self.categories[idx + 1], self.categories[idx]
+            self.refresh_categories_list(select_idx=idx + 1)
+
+    def on_all_skill_double_clicked(self, item: QListWidgetItem):
+        if self.current_cat_idx < 0 or self.current_cat_idx >= len(self.categories):
+            return
+        sname = item.data(Qt.ItemDataRole.UserRole) or item.text()
+        cands = self.categories[self.current_cat_idx]["candidates"]
+        if sname not in cands:
+            cands.append(sname)
+            self.refresh_candidates_list()
+            self.update_current_cat_item_text()
+
+    def on_candidate_double_clicked(self, item: QListWidgetItem):
+        if self.current_cat_idx < 0 or self.current_cat_idx >= len(self.categories):
+            return
+        sname = item.data(Qt.ItemDataRole.UserRole) or item.text()
+        cands = self.categories[self.current_cat_idx]["candidates"]
+        if sname in cands:
+            cands.remove(sname)
+            self.refresh_candidates_list()
+            self.update_current_cat_item_text()
+
+    def add_selected_candidates(self):
+        if self.current_cat_idx < 0 or self.current_cat_idx >= len(self.categories):
+            return
+        cands = self.categories[self.current_cat_idx]["candidates"]
+        changed = False
+        for item in self.list_all_skills.selectedItems():
+            sname = item.data(Qt.ItemDataRole.UserRole) or item.text()
+            if sname not in cands:
+                cands.append(sname)
+                changed = True
+        if changed:
+            self.refresh_candidates_list()
+            self.update_current_cat_item_text()
+
+    def remove_selected_candidates(self):
+        if self.current_cat_idx < 0 or self.current_cat_idx >= len(self.categories):
+            return
+        cands = self.categories[self.current_cat_idx]["candidates"]
+        changed = False
+        for item in self.list_candidates.selectedItems():
+            sname = item.data(Qt.ItemDataRole.UserRole) or item.text()
+            if sname in cands:
+                cands.remove(sname)
+                changed = True
+        if changed:
+            self.refresh_candidates_list()
+            self.update_current_cat_item_text()
+
+    def move_up_candidate(self):
+        if self.current_cat_idx < 0 or self.current_cat_idx >= len(self.categories):
+            return
+        idx = self.list_candidates.currentRow()
+        cands = self.categories[self.current_cat_idx]["candidates"]
+        if idx > 0 and idx < len(cands):
+            cands[idx], cands[idx - 1] = cands[idx - 1], cands[idx]
+            self.refresh_candidates_list()
+            self.list_candidates.setCurrentRow(idx - 1)
+
+    def move_down_candidate(self):
+        if self.current_cat_idx < 0 or self.current_cat_idx >= len(self.categories):
+            return
+        idx = self.list_candidates.currentRow()
+        cands = self.categories[self.current_cat_idx]["candidates"]
+        if 0 <= idx < len(cands) - 1:
+            cands[idx], cands[idx + 1] = cands[idx + 1], cands[idx]
+            self.refresh_candidates_list()
+            self.list_candidates.setCurrentRow(idx + 1)
+
+    def derive_current_slot(self):
+        if self.current_cat_idx < 0 or self.current_cat_idx >= len(self.categories):
+            return
+        cur = self.categories[self.current_cat_idx]
+        grp = cur.get("group", "")
+        win = cur.get("window", "")
+
+        derived_all = self._derive_core_skill_categories()
+        matched = next((d for d in derived_all if d.get("group") == grp and d.get("window") == win), None)
+
+        if matched:
+            cur["candidates"] = list(matched.get("candidates", []))
+            self.refresh_candidates_list()
+            self.update_current_cat_item_text()
+            QMessageBox.information(self, "推导完成", f"已按规则为【{grp}·{win}】推导并载入 {len(cur['candidates'])} 个候选技能。")
+        else:
+            QMessageBox.information(self, "提示", "该自定义分类无自动推导规则")
+
+    def reset_to_default(self):
+        res = QMessageBox.question(
+            self, "确认恢复默认",
+            "确定要恢复为默认的 7 档分类配置吗？\n当前所有自定义分类与修改都将丢失。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if res == QMessageBox.StandardButton.Yes:
+            self.categories = self._derive_core_skill_categories()
+            self.refresh_categories_list(select_idx=0)
+
+    def save_config(self):
+        # 确保 enabled 状态与复选框完全同步
+        for i in range(self.list_categories.count()):
+            item = self.list_categories.item(i)
+            if i < len(self.categories):
+                self.categories[i]["enabled"] = (item.checkState() == Qt.CheckState.Checked)
+
+        ok = self._save_core_skill_categories(self.categories, config_path=self.config_path)
+        if ok:
+            self.saved = True
+            self.accept()
+        else:
+            QMessageBox.warning(self, "保存失败", "写入配置文件时发生错误，请检查文件权限。")
+
+
 class AllAccountsBaizhanDialog(QDialog):
     """百战招式全账号总览弹窗"""
-    def __init__(self, mgr, all_chars, parent=None):
+    def __init__(self, mgr, all_chars, config_path: Optional[str] = None, parent=None):
         super().__init__(parent)
         self.mgr = mgr
         self.all_chars = all_chars or []
+        self.config_path = config_path
         self.setWindowTitle("📊 全账号百战技能总览")
         self.resize(1400, 800)
         icon = get_app_icon()
         if not icon.isNull():
             self.setWindowIcon(icon)
 
-        from bz_core_skills import load_core_skill_categories, get_best_candidate_skill, get_core_skills_config_path
+        from bz_core_skills import (
+            load_core_skill_categories,
+            get_best_candidate_skill,
+            get_top_candidate_skills,
+            get_core_skills_config_path
+        )
         self._load_core_skill_categories = load_core_skill_categories
         self._get_best_candidate_skill = get_best_candidate_skill
+        self._get_top_candidate_skills = get_top_candidate_skills
         self._get_core_skills_config_path = get_core_skills_config_path
-        self.categories = self._load_core_skill_categories()
+        self.categories = self._load_core_skill_categories(self.config_path)
 
         self.setStyleSheet("""
             QDialog { background-color: #1e1e2d; color: #ffffff; font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; }
@@ -1426,51 +2065,77 @@ class AllAccountsBaizhanDialog(QDialog):
         self.btn_export_csv.clicked.connect(self.export_to_csv)
         top_bar.addWidget(self.btn_export_csv)
 
-        self.btn_open_config = QPushButton("📂 打开分类配置")
-        self.btn_open_config.setObjectName("PrimaryBtn")
-        self.btn_open_config.setToolTip("在文件管理器中打开 data/bz_core_skills.json 所在目录")
-        self.btn_open_config.clicked.connect(self.open_config_dir)
-        top_bar.addWidget(self.btn_open_config)
+        self.btn_config = QPushButton("⚙ 分类配置")
+        self.btn_config.setObjectName("PrimaryBtn")
+        self.btn_config.setToolTip("打开分类配置界面：选择分类、自定义分类、设置每类展示技能数量")
+        self.btn_config.clicked.connect(self.open_config_dialog)
+        top_bar.addWidget(self.btn_config)
 
         layout.addLayout(top_bar)
 
-        # 表格配置
-        headers = ["角色", "服务器", "门派", "百战精", "百战耐"] + [
-            f"{c.get('group', '')}·{c.get('window', '')}" for c in self.categories
-        ]
-
+        # 表格初始化
         self.table = QTableWidget()
-        self.table.setColumnCount(len(headers))
-        self.table.setHorizontalHeaderLabels(headers)
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.table.setSortingEnabled(False)  # 填充完毕后再开启
 
-        self.populate_table(sorted_chars)
+        layout.addWidget(self.table)
 
-        self.table.setSortingEnabled(True)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        self.table.horizontalHeader().setStretchLastSection(True)
+        # 底部提示小字
+        self.lbl_tip = QLabel("💡 技能分类支持在 ⚙ 分类配置 中自由定制（启用/禁用、新增分类、调整展示技能数量与优先级）。")
+        self.lbl_tip.setStyleSheet("font-size: 12px; color: #8888aa; margin-top: 4px;")
+        layout.addWidget(self.lbl_tip)
 
-        # 初始列宽
+        # 构建表格内容
+        self.rebuild_table()
+
+    def open_config_dialog(self):
+        dlg = CoreSkillsConfigDialog(config_path=self.config_path, parent=self)
+        if dlg.exec() and getattr(dlg, "saved", False):
+            self.categories = self._load_core_skill_categories(self.config_path)
+            self.rebuild_table()
+
+    def rebuild_table(self):
+        sorted_chars = sorted(self.all_chars, key=lambda c: c.get("name", ""))
+        enabled_cats = [c for c in self.categories if c.get("enabled", True)]
+
+        headers = ["角色", "服务器", "门派", "百战精", "百战耐"] + [
+            f"{c.get('group', '')}·{c.get('window', '')}" for c in enabled_cats
+        ]
+
+        self.table.setSortingEnabled(False)
+        self.table.clear()
+        self.table.setColumnCount(len(headers))
+        self.table.setHorizontalHeaderLabels(headers)
+
+        # 列宽设置
         self.table.setColumnWidth(0, 110)
         self.table.setColumnWidth(1, 90)
         self.table.setColumnWidth(2, 80)
         self.table.setColumnWidth(3, 90)
         self.table.setColumnWidth(4, 90)
         for col_idx in range(5, len(headers)):
-            self.table.setColumnWidth(col_idx, 125)
+            self.table.setColumnWidth(col_idx, 130)
 
-        layout.addWidget(self.table)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.horizontalHeader().setStretchLastSection(True)
 
-        # 底部提示小字
-        lbl_tip = QLabel("💡 技能分类规则基于打击类型（打精/打耐/回复）与冷却时间自动推导，每档展示角色已学最高等级技能。支持在 data/bz_core_skills.json 中自定义候选技能。")
-        lbl_tip.setStyleSheet("font-size: 12px; color: #8888aa; margin-top: 4px;")
-        layout.addWidget(lbl_tip)
+        if not enabled_cats:
+            self.lbl_tip.setText("⚠️ 当前未启用任何技能分类，请点击 ⚙ 分类配置 启用")
+            self.lbl_tip.setStyleSheet("font-size: 12px; color: #ff9800; margin-top: 4px;")
+            self.table.verticalHeader().setDefaultSectionSize(26)
+        else:
+            max_disp = max([c.get("display_count", 1) for c in enabled_cats], default=1)
+            row_height = 24 + max(0, max_disp - 1) * 16
+            self.table.verticalHeader().setDefaultSectionSize(row_height)
+            self.lbl_tip.setText("💡 技能分类支持在 ⚙ 分类配置 中自由定制（启用/禁用、新增分类、调整展示技能数量与优先级）。")
+            self.lbl_tip.setStyleSheet("font-size: 12px; color: #8888aa; margin-top: 4px;")
 
-    def populate_table(self, sorted_chars):
+        self.populate_table(sorted_chars, enabled_cats)
+        self.table.setSortingEnabled(True)
+
+    def populate_table(self, sorted_chars, enabled_cats):
         self.table.setRowCount(len(sorted_chars))
 
         for row_idx, c in enumerate(sorted_chars):
@@ -1518,12 +2183,13 @@ class AllAccountsBaizhanDialog(QDialog):
             it_energy.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self.table.setItem(row_idx, 4, it_energy)
 
-            # 6~12. 技能列
+            # 6~N. 技能列
             skill_list = bz_api.get("skillList", []) if has_bz else []
 
-            for col_offset, cat in enumerate(self.categories):
+            for col_offset, cat in enumerate(enabled_cats):
                 col_idx = 5 + col_offset
                 candidates = cat.get("candidates", [])
+                disp_count = max(1, int(cat.get("display_count", 1)))
 
                 if not has_bz:
                     it_skill = NumericTableWidgetItem("无数据", -1)
@@ -1537,13 +2203,14 @@ class AllAccountsBaizhanDialog(QDialog):
                     it_skill = NumericTableWidgetItem("—", -1)
                     it_skill.setForeground(QColor("#777777"))
                     it_skill.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                    it_skill.setToolTip("该档位暂无归类技能，可编辑 data/bz_core_skills.json 自定义")
+                    it_skill.setToolTip("该档位暂无归类技能，可点击 ⚙ 分类配置 自定义")
                     self.table.setItem(row_idx, col_idx, it_skill)
                     continue
 
+                top_skills = self._get_top_candidate_skills(skill_list, candidates, top_n=disp_count)
                 best_skill, learned_list = self._get_best_candidate_skill(skill_list, candidates)
 
-                if not best_skill:
+                if not top_skills:
                     it_skill = NumericTableWidgetItem("未学习", 0)
                     it_skill.setForeground(QColor("#888888"))
                     it_skill.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1551,18 +2218,19 @@ class AllAccountsBaizhanDialog(QDialog):
                     it_skill.setToolTip(f"未学习该档位技能\n\n【该档候选技能 ({len(candidates)}个)】\n{cand_text}")
                     self.table.setItem(row_idx, col_idx, it_skill)
                 else:
-                    s_name = best_skill.get("szSkillName", "")
-                    lvl = int(best_skill.get("nLevel", 0))
-                    it_skill = NumericTableWidgetItem(f"{s_name} Lv{lvl}", lvl)
+                    lines = [f"{s.get('szSkillName', '')} Lv{int(s.get('nLevel', 0))}" for s in top_skills]
+                    text = "\n".join(lines)
+                    max_lvl = int(top_skills[0].get("nLevel", 0))
+                    it_skill = NumericTableWidgetItem(text, max_lvl)
                     it_skill.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
                     # 颜色与字体
-                    if lvl >= 10:
+                    if max_lvl >= 10:
                         it_skill.setForeground(QColor("#4caf50"))
                         font = it_skill.font()
                         font.setBold(True)
                         it_skill.setFont(font)
-                    elif lvl >= 7:
+                    elif max_lvl >= 7:
                         it_skill.setForeground(QColor("#40a9ff"))
                     else:
                         it_skill.setForeground(QColor("#ffa726"))
@@ -1601,14 +2269,6 @@ class AllAccountsBaizhanDialog(QDialog):
             QMessageBox.information(self, "导出成功", f"全账号百战总览已成功导出至:\n{filename}")
         except Exception as e:
             QMessageBox.critical(self, "导出失败", f"导出 CSV 遇到错误:\n{str(e)}")
-
-    def open_config_dir(self):
-        cfg_path = self._get_core_skills_config_path()
-        cfg_dir = os.path.dirname(os.path.abspath(cfg_path))
-        if os.path.exists(cfg_dir):
-            QDesktopServices.openUrl(QUrl.fromLocalFile(cfg_dir))
-        else:
-            QMessageBox.warning(self, "提示", f"配置目录不存在:\n{cfg_dir}")
 
 
 class BaizhanSkillsDialog(QDialog):

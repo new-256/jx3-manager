@@ -1,5 +1,5 @@
 {
-  "_note": "核心技能分类映射，可手动编辑。每档 candidates 里列出候选技能名，表格取角色已学候选中等级最高的一个展示。留空则该档显示 —",
+  "_note": "核心技能分类映射，可手动编辑或通过UI配置。每档 candidates 里列出候选技能名，表格取角色已学候选中等级最高的前 N 个展示。留空则该档显示 —",
   "_rule": "默认由 bz_skill_desc.json(打击类型) + baizhan_skills_enriched.json(冷却) 自动推导：cd>=31→1分钟档, 11-30→30S档, <=10→10S档",
   "categories": [
     {
@@ -8,12 +8,16 @@
       "candidates": [
         "厄毒爆发",
         "蚀骨之花"
-      ]
+      ],
+      "enabled": true,
+      "display_count": 1
     },
     {
       "group": "打精",
       "window": "30S",
-      "candidates": []
+      "candidates": [],
+      "enabled": true,
+      "display_count": 1
     },
     {
       "group": "打精",
@@ -60,7 +64,9 @@
         "一瞬柄撞",
         "一刀浮尘",
         "一刀柄锤"
-      ]
+      ],
+      "enabled": true,
+      "display_count": 1
     },
     {
       "group": "打耐",
@@ -68,14 +74,18 @@
       "candidates": [
         "黑煞落贪狼",
         "血狱隐杀"
-      ]
+      ],
+      "enabled": true,
+      "display_count": 1
     },
     {
       "group": "打耐",
       "window": "30S",
       "candidates": [
         "七荒黑牙"
-      ]
+      ],
+      "enabled": true,
+      "display_count": 1
     },
     {
       "group": "打耐",
@@ -121,7 +131,9 @@
         "三环套月式",
         "一闪天诛",
         "一瞬柄撞"
-      ]
+      ],
+      "enabled": true,
+      "display_count": 1
     },
     {
       "group": "回复",
@@ -137,7 +149,9 @@
         "俯阵熊突",
         "九转归元诀",
         "万花金创药"
-      ]
+      ],
+      "enabled": true,
+      "display_count": 1
     }
   ]
 }

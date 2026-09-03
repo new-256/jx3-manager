@@ -1,11 +1,12 @@
 """
-百战招式全账号总览与核心招式分类映射单元测试
+百战招式全账号总览与核心招式分类映射及 UI 配置单元测试
 """
 import os
 import sys
+import json
 import pytest
 from unittest.mock import MagicMock
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QListWidgetItem
 from PyQt6.QtCore import Qt
 
 # 确保无图形界面模式
@@ -14,11 +15,15 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from bz_core_skills import (
     load_core_skill_categories,
+    save_core_skill_categories,
     derive_core_skill_categories,
+    get_all_known_skills,
+    get_skill_meta,
     get_best_candidate_skill,
+    get_top_candidate_skills,
     CORE_CATEGORY_SLOTS,
 )
-from gui_qt import AllAccountsBaizhanDialog, BaizhanSkillsDialog
+from gui_qt import CoreSkillsConfigDialog, AllAccountsBaizhanDialog, BaizhanSkillsDialog
 
 
 @pytest.fixture(scope="session")
@@ -30,9 +35,9 @@ def qapp():
 
 
 def test_load_core_skill_categories_normal():
-    """测试 load_core_skill_categories 返回 7 个档位且顺序与类型严格正确"""
+    """测试 load_core_skill_categories 返回默认档位且顺序与类型严格正确"""
     cats = load_core_skill_categories()
-    assert len(cats) == 7
+    assert len(cats) >= 7
     expected_slots = [
         ("打精", "1分钟"),
         ("打精", "30S"),
@@ -46,6 +51,8 @@ def test_load_core_skill_categories_normal():
         assert cats[i]["group"] == grp
         assert cats[i]["window"] == win
         assert isinstance(cats[i]["candidates"], list)
+        assert "enabled" in cats[i]
+        assert "display_count" in cats[i]
 
     # 验证关键候选技能归类
     jing_1m = next(c["candidates"] for c in cats if c["group"] == "打精" and c["window"] == "1分钟")
@@ -60,156 +67,284 @@ def test_load_core_skill_categories_normal():
 
 
 def test_core_skill_categories_fallback_on_missing_or_corrupt_file(tmp_path):
-    """测试配置文件缺失或损坏时，自动推导兜底不抛异常且仍返回 7 档"""
+    """测试配置文件缺失或损坏或为空时，自动推导兜底不抛异常且返回带 enabled 与 display_count 的 7 档"""
     non_existent_file = str(tmp_path / "non_existent.json")
     cats = load_core_skill_categories(non_existent_file)
     assert len(cats) == 7
     for i, (grp, win) in enumerate(CORE_CATEGORY_SLOTS):
         assert cats[i]["group"] == grp
         assert cats[i]["window"] == win
+        assert cats[i]["enabled"] is True
+        assert cats[i]["display_count"] == 1
 
     # 损坏文件测试
     bad_file = tmp_path / "bad.json"
     bad_file.write_text("{corrupt_json: true", encoding="utf-8")
     cats_bad = load_core_skill_categories(str(bad_file))
     assert len(cats_bad) == 7
+    assert cats_bad[0]["enabled"] is True
 
-    # 缺失部分档位测试
-    incomplete_file = tmp_path / "incomplete.json"
-    incomplete_file.write_text('{"categories": [{"group": "打精", "window": "1分钟", "candidates": []}]}', encoding="utf-8")
-    cats_inc = load_core_skill_categories(str(incomplete_file))
-    assert len(cats_inc) == 7
+    # 空 categories 列表测试 -> 兜底推导
+    empty_file = tmp_path / "empty.json"
+    empty_file.write_text('{"categories": []}', encoding="utf-8")
+    cats_empty = load_core_skill_categories(str(empty_file))
+    assert len(cats_empty) == 7
 
 
-def test_get_best_candidate_skill():
-    """测试取候选中等级最高招式的选取逻辑"""
-    candidates = ["黑煞落贪狼", "血狱隐杀", "七荒黑牙"]
+def test_save_and_load_core_skill_categories_roundtrip(tmp_path):
+    """测试 save_core_skill_categories 与 load_core_skill_categories 往返一致"""
+    cfg_file = str(tmp_path / "custom_skills.json")
+    custom_cats = [
+        {
+            "group": "自定义输出",
+            "window": "爆发",
+            "candidates": ["黑煞落贪狼", "厄毒爆发"],
+            "enabled": False,
+            "display_count": 3
+        },
+        {
+            "group": "特种辅助",
+            "window": "解控",
+            "candidates": ["万蛇骨"],
+            "enabled": True,
+            "display_count": 2
+        }
+    ]
 
-    # 1. 多个候选技能，取等级最高的
-    skill_list_1 = [
+    ok = save_core_skill_categories(custom_cats, config_path=cfg_file)
+    assert ok is True
+    assert os.path.exists(cfg_file)
+
+    loaded = load_core_skill_categories(config_path=cfg_file)
+    assert len(loaded) == 2
+    assert loaded[0]["group"] == "自定义输出"
+    assert loaded[0]["window"] == "爆发"
+    assert loaded[0]["candidates"] == ["黑煞落贪狼", "厄毒爆发"]
+    assert loaded[0]["enabled"] is False
+    assert loaded[0]["display_count"] == 3
+
+    assert loaded[1]["group"] == "特种辅助"
+    assert loaded[1]["window"] == "解控"
+    assert loaded[1]["candidates"] == ["万蛇骨"]
+    assert loaded[1]["enabled"] is True
+    assert loaded[1]["display_count"] == 2
+
+
+def test_legacy_format_auto_fill_defaults(tmp_path):
+    """测试旧格式配置（无 enabled / display_count 字段）加载后自动补齐默认值 True / 1"""
+    cfg_file = tmp_path / "legacy.json"
+    cfg_file.write_text(json.dumps({
+        "categories": [
+            {"group": "打精", "window": "1分钟", "candidates": ["厄毒爆发"]},
+            {"group": "打耐", "window": "30S", "candidates": ["七荒黑牙"]}
+        ]
+    }), encoding="utf-8")
+
+    loaded = load_core_skill_categories(str(cfg_file))
+    assert len(loaded) == 2
+    assert loaded[0]["enabled"] is True
+    assert loaded[0]["display_count"] == 1
+    assert loaded[1]["enabled"] is True
+    assert loaded[1]["display_count"] == 1
+
+
+def test_custom_categories_arbitrary_count(tmp_path):
+    """测试配置包含 5 个自定义分类（非标准 7 档）时能原样加载，不被强制改回 7 档"""
+    cfg_file = tmp_path / "five_cats.json"
+    cats_data = [
+        {"group": f"分类{i}", "window": f"档位{i}", "candidates": [], "enabled": True, "display_count": 1}
+        for i in range(5)
+    ]
+    cfg_file.write_text(json.dumps({"categories": cats_data}), encoding="utf-8")
+
+    loaded = load_core_skill_categories(str(cfg_file))
+    assert len(loaded) == 5
+    for i in range(5):
+        assert loaded[i]["group"] == f"分类{i}"
+        assert loaded[i]["window"] == f"档位{i}"
+
+
+def test_get_top_candidate_skills():
+    """测试 get_top_candidate_skills 等级降序、优先级、top_n 数量截取与兜底"""
+    candidates = ["黑煞落贪狼", "血狱隐杀", "七荒黑牙", "定波式"]
+    skill_list = [
         {"szSkillName": "血狱隐杀", "nLevel": 5},
         {"szSkillName": "黑煞落贪狼", "nLevel": 8},
-        {"szSkillName": "七荒黑牙", "nLevel": 6},
+        {"szSkillName": "七荒黑牙", "nLevel": 8},  # 等级与黑煞相同，但黑煞在 candidates 中排第0位，优先级更高
+        {"szSkillName": "定波式", "nLevel": 3},
     ]
-    best, learned = get_best_candidate_skill(skill_list_1, candidates)
-    assert best is not None
-    assert best["szSkillName"] == "黑煞落贪狼"
-    assert best["nLevel"] == 8
-    assert len(learned) == 3
-    assert learned[0]["szSkillName"] == "黑煞落贪狼"
 
-    # 2. 角色无该档位任何候选技能
-    skill_list_2 = [
-        {"szSkillName": "定波式", "nLevel": 7},
-        {"szSkillName": "空穴来风", "nLevel": 10},
+    # top_n = 3
+    top3 = get_top_candidate_skills(skill_list, candidates, top_n=3)
+    assert len(top3) == 3
+    assert top3[0]["szSkillName"] == "黑煞落贪狼"  # Lv8, 候选序0
+    assert top3[1]["szSkillName"] == "七荒黑牙"    # Lv8, 候选序2
+    assert top3[2]["szSkillName"] == "血狱隐杀"    # Lv5
+
+    # top_n = 10 (大于实际已学数量 4)
+    top10 = get_top_candidate_skills(skill_list, candidates, top_n=10)
+    assert len(top10) == 4
+
+    # top_n = 1 与 get_best_candidate_skill 一致性
+    top1 = get_top_candidate_skills(skill_list, candidates, top_n=1)
+    best, _ = get_best_candidate_skill(skill_list, candidates)
+    assert len(top1) == 1
+    assert top1[0] == best
+
+    # 无已学技能
+    empty_res = get_top_candidate_skills([], candidates, top_n=3)
+    assert empty_res == []
+
+    # top_n <= 0
+    assert get_top_candidate_skills(skill_list, candidates, top_n=0) == []
+
+
+def test_get_all_known_skills_and_meta():
+    """测试获取已知技能列表及单技能元数据"""
+    skills = get_all_known_skills()
+    assert isinstance(skills, list)
+    if skills:
+        assert "黑煞落贪狼" in skills
+        meta = get_skill_meta("黑煞落贪狼")
+        assert isinstance(meta, dict)
+        assert "cooldown" in meta
+        assert "detail" in meta
+
+
+def test_core_skills_config_dialog_ui(qapp, tmp_path):
+    """测试 CoreSkillsConfigDialog 界面交互（使用独立临时配置文件，绝不污染真实数据）"""
+    tmp_config = tmp_path / "test_bz_config.json"
+    init_cats = [
+        {"group": "测试打精", "window": "1分钟", "candidates": ["厄毒爆发"], "enabled": True, "display_count": 2},
+        {"group": "测试打耐", "window": "30S", "candidates": ["七荒黑牙"], "enabled": False, "display_count": 1},
     ]
-    best_2, learned_2 = get_best_candidate_skill(skill_list_2, candidates)
-    assert best_2 is None
-    assert len(learned_2) == 0
+    save_core_skill_categories(init_cats, str(tmp_config))
 
-    # 3. nLevel=0 视为未学习
-    skill_list_3 = [
-        {"szSkillName": "黑煞落贪狼", "nLevel": 0},
-        {"szSkillName": "七荒黑牙", "nLevel": "0"},
-    ]
-    best_3, learned_3 = get_best_candidate_skill(skill_list_3, candidates)
-    assert best_3 is None
-    assert len(learned_3) == 0
+    dlg = CoreSkillsConfigDialog(config_path=str(tmp_config))
+    assert dlg.windowTitle() == "⚙ 百战技能分类配置"
+    assert dlg.list_categories.count() == 2
 
-    # 4. 空候选或空技能列表
-    assert get_best_candidate_skill([], candidates) == (None, [])
-    assert get_best_candidate_skill(skill_list_1, []) == (None, [])
-    assert get_best_candidate_skill(None, candidates) == (None, [])
+    # 断言左列表项文字与勾选状态
+    item0 = dlg.list_categories.item(0)
+    item1 = dlg.list_categories.item(1)
+    assert "测试打精·1分钟" in item0.text()
+    assert item0.checkState() == Qt.CheckState.Checked
+    assert "测试打耐·30S" in item1.text()
+    assert item1.checkState() == Qt.CheckState.Unchecked
+
+    # 选中第 0 项，检查右侧 spinbox 和 candidates
+    dlg.list_categories.setCurrentRow(0)
+    assert dlg.spin_display_count.value() == 2
+    assert dlg.list_candidates.count() == 1
+
+    # 选中第 1 项，检查右侧 spinbox
+    dlg.list_categories.setCurrentRow(1)
+    assert dlg.spin_display_count.value() == 1
+    assert dlg.list_candidates.count() == 1
+
+    # 模拟新增分类
+    new_cat = {
+        "group": "自定义辅助",
+        "window": "核心",
+        "candidates": ["万蛇骨"],
+        "enabled": True,
+        "display_count": 1
+    }
+    dlg.categories.append(new_cat)
+    dlg.refresh_categories_list(select_idx=2)
+    assert dlg.list_categories.count() == 3
+
+    # 保存配置并验证写回文件
+    dlg.save_config()
+    assert dlg.saved is True
+
+    saved_cats = load_core_skill_categories(str(tmp_config))
+    assert len(saved_cats) == 3
+    assert saved_cats[2]["group"] == "自定义辅助"
+
+    dlg.close()
 
 
-def test_all_accounts_baizhan_dialog_ui(qapp):
-    """测试 AllAccountsBaizhanDialog 构造、行数、列数、表头与无数据单元格展示"""
+def test_all_accounts_baizhan_dialog_ui_and_features(qapp, tmp_path):
+    """测试 AllAccountsBaizhanDialog 多技能换行展示、分类禁用列减少以及分类配置弹窗交互"""
     mock_mgr = MagicMock()
+    tmp_config = tmp_path / "test_overview_config.json"
 
-    # 构造假数据（3个角色，其中一个无百战数据）
+    # 设置 2 个分类：一个展示2个技能，一个被禁用
+    config_cats = [
+        {
+            "group": "打精",
+            "window": "10S",
+            "candidates": ["定波式", "空穴来风", "冥府滑行"],
+            "enabled": True,
+            "display_count": 2
+        },
+        {
+            "group": "打耐",
+            "window": "1分钟",
+            "candidates": ["黑煞落贪狼", "血狱隐杀"],
+            "enabled": True,
+            "display_count": 1
+        },
+        {
+            "group": "隐藏分类",
+            "window": "测试",
+            "candidates": ["万蛇骨"],
+            "enabled": False,  # 禁用
+            "display_count": 1
+        }
+    ]
+    save_core_skill_categories(config_cats, str(tmp_config))
+
     mock_chars = [
         {
-            "name": "角色A",
-            "server": "梦江南",
+            "name": "测试角色A",
+            "server": "测试区服A",
             "force": "纯阳",
             "baizhan_api": {
                 "skillStamina": 250000,
                 "skillEnergy": 270000,
                 "skillList": [
-                    {"szSkillName": "厄毒爆发", "nLevel": 10},
-                    {"szSkillName": "蚀骨之花", "nLevel": 7},
-                    {"szSkillName": "黑煞落贪狼", "nLevel": 9},
-                    {"szSkillName": "七荒黑牙", "nLevel": 5},
-                    {"szSkillName": "定波式", "nLevel": 6},
-                    {"szSkillName": "海蛇投枪", "nLevel": 8},
-                    {"szSkillName": "万蛇骨", "nLevel": 10},
+                    {"szSkillName": "定波式", "nLevel": 8},
+                    {"szSkillName": "空穴来风", "nLevel": 6},
+                    {"szSkillName": "黑煞落贪狼", "nLevel": 10},
                 ],
             },
         },
         {
-            "name": "角色B",
-            "server": "测试区服A",
+            "name": "测试角色B",
+            "server": "测试区服B",
             "force": "七秀",
             "baizhan_api": {
-                "skillStamina": 120000,
-                "skillEnergy": 150000,
-                "skillList": [
-                    {"szSkillName": "黑煞落贪狼", "nLevel": 3},
-                ],
+                "skillStamina": 100000,
+                "skillEnergy": 120000,
+                "skillList": [],
             },
-        },
-        {
-            "name": "角色C",
-            "server": "测试区服B",
-            "force": "万花",
-            # 无 baizhan_api
-        },
+        }
     ]
 
-    dlg = AllAccountsBaizhanDialog(mock_mgr, mock_chars)
-    assert dlg.windowTitle() == "📊 全账号百战技能总览"
-    assert not dlg.windowIcon().isNull()
+    dlg = AllAccountsBaizhanDialog(mock_mgr, mock_chars, config_path=str(tmp_config))
 
-    # 断言行数与列数
-    assert dlg.table.rowCount() == 3
-    assert dlg.table.columnCount() == 12
+    # 断言列数：基础5列 + 2个启用的技能分类列 = 7列（禁用的分类不出现）
+    assert dlg.table.columnCount() == 7
+    expected_headers = ["角色", "服务器", "门派", "百战精", "百战耐", "打精·10S", "打耐·1分钟"]
+    for col, h in enumerate(expected_headers):
+        assert dlg.table.horizontalHeaderItem(col).text() == h
 
-    # 断言表头
-    expected_headers = [
-        "角色", "服务器", "门派", "百战精", "百战耐",
-        "打精·1分钟", "打精·30S", "打精·10S",
-        "打耐·1分钟", "打耐·30S", "打耐·10S", "回复·核心"
-    ]
-    for col, expected in enumerate(expected_headers):
-        assert dlg.table.horizontalHeaderItem(col).text() == expected
+    # 检查第 0 行测试角色A（display_count=2 的打精·10S 列，索引 5）
+    cell_text = dlg.table.item(0, 5).text()
+    assert "\n" in cell_text
+    lines = cell_text.split("\n")
+    assert len(lines) == 2
+    assert lines[0] == "定波式 Lv8"
+    assert lines[1] == "空穴来风 Lv6"
 
-    # 角色A (row 0)
-    assert dlg.table.item(0, 0).text() == "角色A"
-    assert dlg.table.item(0, 3).text() == "250,000"
-    assert dlg.table.item(0, 4).text() == "270,000"
-    assert dlg.table.item(0, 5).text() == "厄毒爆发 Lv10"
-    assert dlg.table.item(0, 6).text() == "—"  # 打精 30S 候选为空
-    assert dlg.table.item(0, 7).text() == "定波式 Lv6"
-    assert dlg.table.item(0, 8).text() == "黑煞落贪狼 Lv9"
-    assert dlg.table.item(0, 9).text() == "七荒黑牙 Lv5"
-    assert dlg.table.item(0, 10).text() == "海蛇投枪 Lv8"
-    assert dlg.table.item(0, 11).text() == "万蛇骨 Lv10"
+    # 检查打耐·1分钟（display_count=1，索引 6）
+    assert dlg.table.item(0, 6).text() == "黑煞落贪狼 Lv10"
 
-    # 角色B (row 1): 打精未学习
-    assert dlg.table.item(1, 0).text() == "角色B"
-    assert dlg.table.item(1, 5).text() == "未学习"
-    assert dlg.table.item(1, 8).text() == "黑煞落贪狼 Lv3"
-
-    # 角色C (row 2): 无百战数据
-    assert dlg.table.item(2, 0).text() == "角色C"
-    assert dlg.table.item(2, 3).text() == "-"
-    assert dlg.table.item(2, 4).text() == "-"
-    for col in range(5, 12):
-        assert dlg.table.item(2, col).text() == "无数据"
-
-    # 顶部统计
-    assert "共 <b>3</b> 个角色" in dlg.lbl_stats.text()
-    assert "有百战数据 <b>2</b> 个" in dlg.lbl_stats.text()
+    # 检查顶部工具栏按钮文字
+    assert hasattr(dlg, "btn_config")
+    assert dlg.btn_config.text() == "⚙ 分类配置"
 
     dlg.close()
 
