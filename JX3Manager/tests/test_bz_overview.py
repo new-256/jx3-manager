@@ -22,6 +22,8 @@ from bz_core_skills import (
     get_best_candidate_skill,
     get_top_candidate_skills,
     get_verified_cooldowns,
+    get_skill_levels,
+    SKILL_LEVEL_WINDOW,
     CORE_CATEGORY_SLOTS,
 )
 from gui_qt import CoreSkillsConfigDialog, AllAccountsBaizhanDialog, BaizhanSkillsDialog
@@ -58,19 +60,68 @@ def test_get_verified_cooldowns_only_returns_id_matched():
 
 
 def test_derive_only_tiers_verified_cooldown_skills():
-    """未通过冷却校验的招式必须落在 10S 档，不得凭错误冷却分入 1分钟/30S 档"""
+    """档位分配合规性：1分钟/30S 档的招式必须有级别(2-3级)或经过验证的冷却"""
     cats = derive_core_skill_categories()
+    lv = get_skill_levels()
     verified = get_verified_cooldowns()
 
     for c in cats:
         if c["window"] in ("1分钟", "30S"):
             for sname in c["candidates"]:
+                level = lv.get(sname)
                 cd = verified.get(sname)
-                assert cd is not None, f"{sname} 冷却不可信却被分入 {c['window']} 档"
-                if c["window"] == "1分钟":
-                    assert cd >= 31
-                else:
-                    assert 11 <= cd <= 30
+                ok = (level is not None) or (cd is not None)
+                assert ok, f"{sname} 既无级别又无验证冷却，不应分入 {c['window']} 档"
+                if level is not None:
+                    # 级别规则：1级=10S, 2级=30S, 3级=1分钟
+                    if c["window"] == "1分钟":
+                        assert level == 3, f"{sname} 级别={level} 不应分入 1分钟 档"
+                    elif c["window"] == "30S":
+                        assert level == 2, f"{sname} 级别={level} 不应分入 30S 档"
+
+
+def test_get_skill_levels_parses_dbm_note():
+    """
+    招式级别解析回归测试：bz_skill_meta.json 的 dbm_note 形如
+    '绿 消耗点数：1  1级'，需正确解出末尾的 N级。
+    暂定规则：1级=10S, 2级=30S, 3级=1分钟。
+    """
+    levels = get_skill_levels()
+    assert isinstance(levels, dict)
+    assert all(isinstance(v, int) for v in levels.values())
+    # 级别只应出现 1/2/3
+    assert set(levels.values()) <= {1, 2, 3}
+
+    # 已知样例：破裂 note='绿 消耗点数：1  1级' -> 1级
+    assert levels.get("破裂") == 1
+    # 定波式 note='紫 消耗点数：1  2级' -> 2级
+    assert levels.get("定波式") == 2
+    # 黑煞落贪狼 为 3级，且其经 ID 验证的冷却=60s，与 3级->1分钟 规则自洽
+    assert levels.get("黑煞落贪狼") == 3
+
+    # 无级别标注的条目不应出现（note 形如 ' 消耗点数：1 '）
+    assert "特制金创药" not in levels
+
+    # 映射规则常量正确
+    assert SKILL_LEVEL_WINDOW == {1: "10S", 2: "30S", 3: "1分钟"}
+
+
+def test_derive_uses_level_as_primary_tier_rule():
+    """级别应作为分档主依据：3级招式进 1分钟档，2级进 30S 档，1级进 10S 档"""
+    cats = derive_core_skill_categories()
+    lv = get_skill_levels()
+    by_slot = {(c["group"], c["window"]): c["candidates"] for c in cats}
+
+    # 黑煞落贪狼 3级 且为打耐 -> 打耐·1分钟
+    assert "黑煞落贪狼" in by_slot[("打耐", "1分钟")]
+    # 定波式 2级 且为打精 -> 打精·30S
+    assert "定波式" in by_slot[("打精", "30S")]
+
+    # 反向校验：每个 1级招式都不应出现在 1分钟/30S 档
+    for (grp, win), names in by_slot.items():
+        if win in ("1分钟", "30S"):
+            for n in names:
+                assert lv.get(n) != 1, f"{n} 是1级却被分入 {win} 档"
 
 
 def test_load_core_skill_categories_normal():
@@ -93,19 +144,21 @@ def test_load_core_skill_categories_normal():
         assert "enabled" in cats[i]
         assert "display_count" in cats[i]
 
-    # 验证关键候选技能归类（冷却数据经 ID 校验，仅 12 个可信）
-    # 打精·1分钟 无冷确信的 cd≥31 打精招式 -> 空
+    # 验证关键候选技能归类（按级别分档：1级=10S / 2级=30S / 3级=1分钟）
+    # 打精·1分钟: 3级招式
     jing_1m = next(c["candidates"] for c in cats if c["group"] == "打精" and c["window"] == "1分钟")
-    assert len(jing_1m) == 0
-    # 打精·10S 包含全部打精招式（冷却不可信或不可信 <=10 的均归此处）
+    assert len(jing_1m) == 3
+    assert "帝骖龙翔" in jing_1m
+    # 打精·10S: 1级+无级别招式
     jing_10s = next(c["candidates"] for c in cats if c["group"] == "打精" and c["window"] == "10S")
-    assert "厄毒爆发" in jing_10s
-    assert "蚀骨之花" in jing_10s
-    assert len(jing_10s) == 43
+    assert "厄毒爆发" in jing_10s  # 无级别，默认归 10S
+    assert "蚀骨之花" in jing_10s  # 无级别，默认归 10S
+    assert len(jing_10s) == 32
 
     nai_1m = next(c["candidates"] for c in cats if c["group"] == "打耐" and c["window"] == "1分钟")
-    assert "黑煞落贪狼" in nai_1m  # 唯一可信的 cd=60 打耐招式
-    assert len(nai_1m) == 1
+    assert "黑煞落贪狼" in nai_1m  # 3级，cd=60 已验证
+    assert "疯狂疾走" in nai_1m    # 3级
+    assert len(nai_1m) == 3
 
     hf_core = next(c["candidates"] for c in cats if c["group"] == "回复" and c["window"] == "核心")
     assert "万蛇骨" in hf_core

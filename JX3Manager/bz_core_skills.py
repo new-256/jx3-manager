@@ -4,6 +4,7 @@ JX3Manager - 百战核心招式分类映射模块
 """
 
 import os
+import re
 import json
 import logging
 from typing import List, Dict, Any, Tuple, Optional
@@ -48,6 +49,47 @@ def _find_data_file(filename: str, explicit_path: Optional[str] = None) -> Optio
         if os.path.exists(c):
             return c
     return None
+
+
+# 招式级别 -> CD 档位映射（暂定规则：1级=10S, 2级=30S, 3级=60S）
+SKILL_LEVEL_WINDOW: Dict[int, str] = {
+    1: "10S",
+    2: "30S",
+    3: "1分钟",
+}
+
+
+def get_skill_levels(meta_path: Optional[str] = None) -> Dict[str, int]:
+    """
+    从 bz_skill_meta.json 的 dbm_note 解析招式级别 {招式名: 级别}。
+
+    dbm_note 形如 '绿 消耗点数：1  1级' / '紫 消耗点数：1  2级'，
+    末尾的 'N级' 即招式级别。部分条目无级别标注（形如 ' 消耗点数：1 '），
+    这类返回中不含该招式。
+
+    实测 156 个招式中 61 个可解析出级别（1级31个 / 2级21个 / 3级9个）。
+    """
+    actual = _find_data_file("bz_skill_meta.json", meta_path)
+    levels: Dict[str, int] = {}
+    if not actual or not os.path.exists(actual):
+        return levels
+    try:
+        with open(actual, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        skills = data.get("skills", {}) if isinstance(data, dict) else {}
+        for name, info in skills.items():
+            if not isinstance(info, dict):
+                continue
+            note = info.get("dbm_note") or ""
+            m = re.search(r"(\d+)\s*级", note)
+            if m:
+                try:
+                    levels[name] = int(m.group(1))
+                except (ValueError, TypeError):
+                    continue
+    except Exception as e:
+        logger.warning(f"读取 bz_skill_meta.json 失败: {e}")
+    return levels
 
 
 def get_verified_cooldowns(
@@ -116,22 +158,16 @@ def derive_core_skill_categories(
       - 描述含 '耐力打击' -> 打耐
       - 描述含 '恢复' 且 ('气血' or '精神' or '耐力') -> 回复
 
-    档位规则（仅采用经 ID 校验的冷却，见 get_verified_cooldowns）：
-      - 冷却可信且 >= 31 -> '1分钟' 档
-      - 冷却可信且 11-30 -> '30S' 档
-      - 其余（冷却可信且 <=10、或冷却不可信/缺失）-> '10S' 档
+    档位规则（暂定，按 bz_skill_meta.json 的 dbm_note 中的 N级）：
+      - 1级 -> 10S  档
+      - 2级 -> 30S  档
+      - 3级 -> 1分钟 档
+      - 无级别 -> 查经 ID 校验的冷却；冷确信且 >=31 -> 1分钟 / 11-30 -> 30S / 其余 -> 10S
       - 回复类统一归入 '核心' 档
       - 候选按招式名排序；默认补全 enabled=True, display_count=1
 
-    【为什么绝大多数招式不按冷却分档】
-    baizhan_skills_enriched.json 的 cooldown 是早期按“招式名”匹配通用技能库生成的，
-    大量百战招式与门派/其他技能重名 -> 匹配到错误技能。经 ID 校验：
-      - 156 个招式中仅 12 个冷却可信
-      - 54 个的冷却实际来自同名的其他技能（错误）
-      - 90 个无冷却数据（旧逻辑按 cd=0 一律塞进 10S 档）
-    因此只有通过校验的招式才自动分档，其余一律放入 10S 档由用户手动划分，
-    避免用错误数据得出错误档位。
-    冷却暂无可信数据源（JX3API 无招式元数据接口，jx3box 按 ID 查不到百战招式）。
+    覆盖统计：levels 覆盖 61 个招式，verified cooldown 覆盖 12 个（其中 2 个与 level 交集），
+    无级别且无可靠冷却的招式归入 10S 档待用户手动划分。
     """
     actual_desc_path = _find_data_file("bz_skill_desc.json", desc_path)
 
@@ -143,17 +179,20 @@ def derive_core_skill_categories(
         except Exception as e:
             logger.warning(f"读取 bz_skill_desc.json 失败: {e}")
 
+    lv = get_skill_levels()
     verified_cd = get_verified_cooldowns(enriched_path=enriched_path)
 
     def window_for(name: str) -> str:
-        """仅对冷却可信的招式分档，其余归 10S 档待用户手动划分"""
+        """根据级别优先、冷却兜底确定档位"""
+        level = lv.get(name)
+        if level is not None:
+            return SKILL_LEVEL_WINDOW.get(level, "10S")
         cd = verified_cd.get(name)
-        if cd is None:
-            return "10S"
-        if cd >= 31:
-            return "1分钟"
-        if cd >= 11:
-            return "30S"
+        if cd is not None:
+            if cd >= 31:
+                return "1分钟"
+            if cd >= 11:
+                return "30S"
         return "10S"
 
     buckets: Dict[Tuple[str, str], List[str]] = {slot: [] for slot in CORE_CATEGORY_SLOTS}
@@ -165,14 +204,22 @@ def derive_core_skill_categories(
         if not detail:
             continue
 
-        win = window_for(name)
-
         if "精神打击" in detail:
-            buckets[("打精", win)].append(name)
+            buckets[("打精", "10S")].append(name)  # placeholder, 下面按档位重新分配
         if "耐力打击" in detail:
-            buckets[("打耐", win)].append(name)
+            buckets[("打耐", "10S")].append(name)
         if "恢复" in detail and ("气血" in detail or "精神" in detail or "耐力" in detail):
             buckets[("回复", "核心")].append(name)
+
+    # 按档位重新分配 打精/打耐
+    for grp in ("打精", "打耐"):
+        all_names = list(buckets[(grp, "10S")])
+        buckets[(grp, "10S")] = []
+        buckets[(grp, "30S")] = []
+        buckets[(grp, "1分钟")] = []
+        for name in all_names:
+            win = window_for(name)
+            buckets[(grp, win)].append(name)
 
     for lst in buckets.values():
         lst.sort()

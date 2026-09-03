@@ -1402,6 +1402,15 @@ class CoreSkillsConfigDialog(QDialog):
         for sname in self.all_skills:
             self._skill_meta_cache[sname] = self._get_skill_meta(sname)
 
+        # 招式级别（1级=10S / 2级=30S / 3级=1分钟），用于列表标注与档位推导
+        try:
+            from bz_core_skills import get_skill_levels, SKILL_LEVEL_WINDOW
+            self._skill_levels = get_skill_levels()
+            self._level_window = dict(SKILL_LEVEL_WINDOW)
+        except Exception:
+            self._skill_levels = {}
+            self._level_window = {}
+
         self.current_cat_idx = -1
         self._is_updating_ui = False
 
@@ -1437,16 +1446,26 @@ class CoreSkillsConfigDialog(QDialog):
         self.init_ui()
 
     def _format_skill_label(self, sname: str) -> str:
-        # 冷却数据不可信（仅 8% 正确），不再显示，直接返回技能名
-        return sname
+        # 冷却数据不可信（仅 8% 正确）不再显示；改标注招式级别（1级=10S / 2级=30S / 3级=1分钟）
+        level = self._skill_levels.get(sname)
+        if level is None:
+            return f"{sname}  ·无级别"
+        win = self._level_window.get(level, "")
+        return f"{sname}  ·{level}级{('/' + win) if win else ''}"
 
     def _get_skill_tooltip(self, sname: str) -> str:
         meta = self._skill_meta_cache.get(sname) or self._get_skill_meta(sname)
         detail = meta.get("detail", "")
+        level = self._skill_levels.get(sname)
+        if level is not None:
+            win = self._level_window.get(level, "")
+            lv_line = f"【招式级别】: {level} 级" + (f"（对应 {win} 档）" if win else "") + "\n"
+        else:
+            lv_line = "【招式级别】: 无级别数据（默认归 10S 档，可手动划分）\n"
         if not detail:
-            return sname
+            return f"【{sname}】\n{lv_line}"
         short = detail[:200] + ("..." if len(detail) > 200 else "")
-        return f"【{sname}】\n{short}"
+        return f"【{sname}】\n{lv_line}{short}"
 
     def init_ui(self):
         main_layout = QVBoxLayout(self)
@@ -1672,9 +1691,10 @@ class CoreSkillsConfigDialog(QDialog):
 
         # 底部数据说明
         lbl_data_note = QLabel(
-            "ℹ️ 自动推导仅按招式描述的打击类型（打精/打耐/回复）归类，全部归入 10S 档；"
-            "1分钟 / 30S 档需按需手动划分。\n"
-            "　　原因：本地招式库的冷却字段由早期按招式名匹配通用技能库生成，156 个招式中仅 12 个可信，故不作为分档依据。"
+            "ℹ️ 档位按招式级别划分（暂定规则）：1级 → 10S，2级 → 30S，3级 → 1分钟；"
+            "打击类型（打精/打耐/回复）取自招式描述。\n"
+            "　　156 个招式中 61 个有级别数据；无级别的默认归 10S 档，可在此手动划分。"
+            "冷却字段因早期按名称匹配通用技能库、仅 12 个可信，已不作为分档依据。"
         )
         lbl_data_note.setStyleSheet("font-size: 11px; color: #8888aa; margin-top: 6px; line-height: 1.5;")
         lbl_data_note.setWordWrap(True)
