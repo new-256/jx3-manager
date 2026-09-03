@@ -2665,6 +2665,10 @@ class BaizhanSkillsDialog(QDialog):
         char_name = self.combo_char.currentText()
         if not char_name:
             return
+        c = next((x for x in self.all_chars if x.get("name") == char_name), None) or self.mgr.characters.get(char_name, {})
+        if c.get("is_benched"):
+            QMessageBox.information(self, "待选区", "该角色在待选区，已跳过API拉取。请先将其移出待选区后再在线刷新。")
+            return
         self.lbl_bz_char.setText(f"⌛ 正在向 JX3API 强制刷新 [{char_name}] 的最新百战数据...")
         self.btn_refresh_bz_online.setEnabled(False)
         self.btn_refresh_bz_online.setText("⟳ 正在在线刷新...")
@@ -3006,7 +3010,7 @@ class BaizhanSkillsDialog(QDialog):
             c = self.mgr.characters.get(name, {})
 
         bz_api = c.get("baizhan_api", {}) if c else {}
-        if not bz_api and c and c.get("server"):
+        if not bz_api and c and c.get("server") and not c.get("is_benched"):
             from readers.baizhan_api import api as bz_api_module
             bz_api = bz_api_module.get_character_skills(c.get("server"), name, force_refresh=False)
             if bz_api and "error" not in bz_api:

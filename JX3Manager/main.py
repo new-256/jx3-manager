@@ -558,8 +558,13 @@ class JX3Manager:
         for name, c in self.characters.items():
             c["is_benched"] = self.bench_mgr.is_benched(name)
 
-        # Load disk-cached baizhan API data
+        # Load disk-cached baizhan API data (skip bench — no auto check/fetch)
         for name, c in self.characters.items():
+            if c.get("is_benched"):
+                old_c = old_chars.get(name, {})
+                if old_c.get("baizhan_api"):
+                    c["baizhan_api"] = old_c["baizhan_api"]
+                continue
             old_c = old_chars.get(name, {})
             if old_c.get("baizhan_api"):
                 c["baizhan_api"] = old_c["baizhan_api"]
@@ -607,6 +612,8 @@ class JX3Manager:
         c = self.characters.get(name, {})
         if not c:
             return {"error": "角色未找到"}
+        if c.get("is_benched"):
+            return {"error": "角色在待选区，已跳过API拉取（移出待选区后再试）"}
         
         server = c.get("server", "")
         if not server:
