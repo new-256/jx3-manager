@@ -37,6 +37,44 @@ def qapp():
     return app
 
 
+def test_skill_icon_coverage_complete():
+    """
+    图标覆盖回归测试：全部 156 个百战招式都应有本地图标文件与 skill_icons.json 映射。
+    罗伊客的 4 个招式（狂澜摧城/横绝八荒/凝锋斩/截影推山）曾缺失，
+    已从 jx3box 补齐（IconID 27636-27639）。
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    skills_fp = os.path.join(root, "data", "baizhan_skills.json")
+    if not os.path.exists(skills_fp):
+        skills_fp = os.path.join(os.path.dirname(root), "data", "baizhan_skills.json")
+    with open(skills_fp, encoding="utf-8") as f:
+        names = {s["name"] for s in json.load(f)["skills"]}
+
+    icons_dir = os.path.join(root, "web", "icons")
+    have_files = {os.path.splitext(f)[0] for f in os.listdir(icons_dir)}
+
+    with open(os.path.join(root, "data", "skill_icons.json"), encoding="utf-8") as f:
+        icon_map = json.load(f)
+
+    # 无缺失图标文件
+    missing_files = names - have_files
+    assert not missing_files, f"缺少图标文件: {sorted(missing_files)}"
+
+    # 无缺失映射
+    missing_map = names - set(icon_map)
+    assert not missing_map, f"skill_icons.json 缺少映射: {sorted(missing_map)}"
+
+    # 罗伊客的 4 个招式必须齐全且为有效 PNG
+    for n in ("狂澜摧城", "横绝八荒", "凝锋斩", "截影推山"):
+        assert n in icon_map, f"{n} 缺少图标映射"
+        fp = os.path.join(icons_dir, f"{n}.png")
+        assert os.path.exists(fp), f"{n} 缺少图标文件"
+        with open(fp, "rb") as f:
+            head = f.read(8)
+        assert head == b"\x89PNG\r\n\x1a\n", f"{n} 不是合法 PNG"
+
+
 def test_get_verified_cooldowns_only_returns_id_matched():
     """
     冷却校验回归测试：baizhan_skills_enriched.json 的冷却是早期按招式名匹配通用技能库
