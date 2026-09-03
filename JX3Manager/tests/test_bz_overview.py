@@ -445,7 +445,7 @@ def test_save_and_load_core_skill_categories_roundtrip(tmp_path):
 
 
 def test_legacy_format_auto_fill_defaults(tmp_path):
-    """测试旧格式配置（无 enabled / display_count 字段）加载后自动补齐默认值 True / 1"""
+    """测试旧格式配置（无 enabled / display_count 字段）加载后自动补齐默认值 True / 5"""
     cfg_file = tmp_path / "legacy.json"
     cfg_file.write_text(json.dumps({
         "categories": [
@@ -457,9 +457,9 @@ def test_legacy_format_auto_fill_defaults(tmp_path):
     loaded = load_core_skill_categories(str(cfg_file))
     assert len(loaded) == 2
     assert loaded[0]["enabled"] is True
-    assert loaded[0]["display_count"] == 1
+    assert loaded[0]["display_count"] == 5
     assert loaded[1]["enabled"] is True
-    assert loaded[1]["display_count"] == 1
+    assert loaded[1]["display_count"] == 5
 
 
 def test_custom_categories_arbitrary_count(tmp_path):
@@ -645,16 +645,30 @@ def test_all_accounts_baizhan_dialog_ui_and_features(qapp, tmp_path):
     for col, h in enumerate(expected_headers):
         assert dlg.table.horizontalHeaderItem(col).text() == h
 
-    # 检查第 0 行测试角色A（display_count=2 的打精·10S 列，索引 5）
-    cell_text = dlg.table.item(0, 5).text()
+    # 检查第 0 行测试角色A（display_count=2 的打精·10S 列，索引 5）：仅图标横排，无残留文字
+    item = dlg.table.item(0, 5)
+    cell_text = item.data(int(Qt.ItemDataRole.UserRole)) or item.text()
     assert "\n" in cell_text
     lines = cell_text.split("\n")
     assert len(lines) == 2
     assert lines[0] == "定波式"  # 仅用名字+颜色体现等级
     assert lines[1] == "空穴来风"
+    # 底层 item 不再绘文字，避免图标背后的文字残影
+    assert item.text() == ""
+    # 单元格应有横排图标控件，每技能含一枚图标+一枚重数徽标
+    w = dlg.table.cellWidget(0, 5)
+    assert w is not None
+    from PyQt6.QtWidgets import QLabel as _Lbl
+    badges = [l.text() for l in w.findChildren(_Lbl) if "重" in l.text()]
+    assert len(badges) == 2
 
     # 检查打耐·1分钟（display_count=1，索引 6）
-    assert dlg.table.item(0, 6).text() == "黑煞落贪狼"
+    item2 = dlg.table.item(0, 6)
+    cell_text2 = item2.data(int(Qt.ItemDataRole.UserRole)) or item2.text()
+    assert cell_text2 == "黑煞落贪狼"
+    assert item2.text() == ""
+    w2 = dlg.table.cellWidget(0, 6)
+    assert w2 is not None
 
     # 检查顶部工具栏按钮文字
     assert hasattr(dlg, "btn_config")

@@ -1393,7 +1393,7 @@ class CoreSkillsConfigDialog(QDialog):
                 "window": str(c.get("window", "")),
                 "candidates": list(c.get("candidates", [])),
                 "enabled": bool(c.get("enabled", True)),
-                "display_count": max(1, int(c.get("display_count", 1))),
+                "display_count": max(1, int(c.get("display_count", 5))),
             }
             for c in raw_cats
         ]
@@ -1789,7 +1789,7 @@ class CoreSkillsConfigDialog(QDialog):
         grp = cat.get("group", "")
         win = cat.get("window", "")
         c_count = len(cat.get("candidates", []))
-        d_count = cat.get("display_count", 1)
+        d_count = cat.get("display_count", 5)
         return f"{grp}·{win}  ({c_count}候选 / 显示{d_count}个)"
 
     def refresh_categories_list(self, select_idx: int = -1):
@@ -1904,15 +1904,25 @@ class CoreSkillsConfigDialog(QDialog):
             self.list_candidates.addItem(item)
 
     def add_category(self):
-        grp, ok1 = QInputDialog.getText(self, "新增分类", "请输入分类名 (group)：\n例如：打精、打耐、回复、输出、控制")
-        if not ok1 or not grp.strip():
+        dlg = QDialog(self)
+        dlg.setWindowTitle("新增分类")
+        dlg.setStyleSheet("QDialog{background:#1e1e2d;color:#fff;} QLabel{color:#eee;} QLineEdit{background:#161622;color:#fff;border:1px solid #444460;border-radius:4px;padding:5px 8px;}")
+        form = QVBoxLayout(dlg)
+        form.addWidget(QLabel("分类名 (group) 例如：打精 / 打耐 / 回复 / 输出"))
+        edt_grp = QLineEdit(); edt_grp.setPlaceholderText("分类名"); form.addWidget(edt_grp)
+        form.addWidget(QLabel("档位名 (window) 例如：1分钟 / 30S / 10S / 核心"))
+        edt_win = QLineEdit(); edt_win.setPlaceholderText("档位名"); form.addWidget(edt_win)
+        btns = QHBoxLayout(); btns.addStretch()
+        btn_ok = QPushButton("确定"); btn_ok.setObjectName("PrimaryBtn")
+        btn_cancel = QPushButton("取消"); btn_cancel.setObjectName("DefaultBtn")
+        btns.addWidget(btn_ok); btns.addWidget(btn_cancel); form.addLayout(btns)
+        btn_ok.clicked.connect(dlg.accept); btn_cancel.clicked.connect(dlg.reject)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        win, ok2 = QInputDialog.getText(self, "新增分类", "请输入档位名 (window)：\n例如：1分钟、30S、10S、核心、爆发")
-        if not ok2 or not win.strip():
+        grp = edt_grp.text().strip(); win = edt_win.text().strip()
+        if not grp or not win:
+            QMessageBox.warning(self, "提示", "分类名与档位名均不能为空。")
             return
-
-        grp = grp.strip()
-        win = win.strip()
         for c in self.categories:
             if c.get("group") == grp and c.get("window") == win:
                 QMessageBox.warning(self, "提示", f"已存在相同分类【{grp}·{win}】，不能重复添加。")
@@ -1923,7 +1933,7 @@ class CoreSkillsConfigDialog(QDialog):
             "window": win,
             "candidates": [],
             "enabled": True,
-            "display_count": 1,
+            "display_count": 5,
         }
         self.categories.append(new_cat)
         self.refresh_categories_list(select_idx=len(self.categories) - 1)
@@ -1954,7 +1964,7 @@ class CoreSkillsConfigDialog(QDialog):
             "window": win,
             "candidates": list(cur.get("candidates", [])),
             "enabled": cur.get("enabled", True),
-            "display_count": cur.get("display_count", 1),
+            "display_count": cur.get("display_count", 5),
         }
         self.categories.insert(idx + 1, new_cat)
         self.refresh_categories_list(select_idx=idx + 1)
@@ -2152,6 +2162,21 @@ class AllAccountsBaizhanDialog(QDialog):
         self._get_core_skills_config_path = get_core_skills_config_path
         self.categories = self._load_core_skill_categories(self.config_path)
         self._level_colors = get_level_colors(self.config_path)
+        # 图标缓存：与招式弹窗保持一致，预加载一次
+        self._icon_dirs = (
+            os.path.join(os.path.dirname(__file__), "web", "icons"),
+            os.path.join(os.path.dirname(__file__), "data", "bz_cache", "icons"),
+        )
+        self._enriched_skills: dict = {}
+        try:
+            _ep = os.path.join(os.path.dirname(__file__), "data", "baizhan_skills_enriched.json")
+            if os.path.exists(_ep):
+                import json as _json
+                with open(_ep, "r", encoding="utf-8") as _f:
+                    _d = _json.load(_f)
+                    self._enriched_skills = _d.get("skills", {}) if isinstance(_d, dict) else {}
+        except Exception:
+            self._enriched_skills = {}
 
         self.setStyleSheet("""
             QDialog { background-color: #1e1e2d; color: #ffffff; font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; }
@@ -2252,8 +2277,13 @@ class AllAccountsBaizhanDialog(QDialog):
         self.table.setColumnWidth(2, 80)
         self.table.setColumnWidth(3, 90)
         self.table.setColumnWidth(4, 90)
-        for col_idx in range(5, len(headers)):
-            self.table.setColumnWidth(col_idx, 130)
+        for col_offset, cat in enumerate(enabled_cats):
+            col_idx = 5 + col_offset
+            disp = max(1, int(cat.get("display_count", 5)))
+            # 图标横排：36px*数量 + 间距
+            w = 38 * disp + 6 * max(0, disp - 1) + 10
+            w = max(120, min(260, w))
+            self.table.setColumnWidth(col_idx, w)
 
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -2261,11 +2291,10 @@ class AllAccountsBaizhanDialog(QDialog):
         if not enabled_cats:
             self.lbl_tip.setText("⚠️ 当前未启用任何技能分类，请点击 ⚙ 分类配置 启用")
             self.lbl_tip.setStyleSheet("font-size: 12px; color: #ff9800; margin-top: 4px;")
-            self.table.verticalHeader().setDefaultSectionSize(26)
+            self.table.verticalHeader().setDefaultSectionSize(28)
         else:
-            max_disp = max([c.get("display_count", 1) for c in enabled_cats], default=1)
-            row_height = 24 + max(0, max_disp - 1) * 16
-            self.table.verticalHeader().setDefaultSectionSize(row_height)
+            # 图标行高固定容纳 图标(36) + 重数标签(14) + 边距
+            self.table.verticalHeader().setDefaultSectionSize(60)
             self.lbl_tip.setText("💡 技能分类支持在 ⚙ 分类配置 中自由定制（启用/禁用、新增分类、调整展示技能数量与优先级）。")
             self.lbl_tip.setStyleSheet("font-size: 12px; color: #8888aa; margin-top: 4px;")
 
@@ -2278,7 +2307,21 @@ class AllAccountsBaizhanDialog(QDialog):
         for row_idx, c in enumerate(sorted_chars):
             name = c.get("name", "")
             server = c.get("server", "")
-            sect = c.get("force", c.get("sect", c.get("school", "")))
+            # 门派：真实数据为 force(整数ID) + force_name(中文名)，历史/测试数据可能直接用 force 存中文
+            sect = (c.get("force_name") or "").strip()
+            if not sect:
+                fid = c.get("force")
+                if fid is not None and fid != "":
+                    try:
+                        from readers.role_data import resolve_force
+                        sect = resolve_force(int(fid))
+                    except (ValueError, TypeError, ImportError):
+                        # 测试/旧数据里 force 已是中文名，直接兜底为字符串
+                        sect = str(fid).strip()
+                    except Exception:
+                        sect = str(fid).strip()
+                if not sect:
+                    sect = (c.get("sect") or c.get("school") or "").strip()
             bz_api = c.get("baizhan_api", {})
 
             has_bz = bool(bz_api and isinstance(bz_api, dict) and "error" not in bz_api and bz_api.get("skillList"))
@@ -2326,7 +2369,7 @@ class AllAccountsBaizhanDialog(QDialog):
             for col_offset, cat in enumerate(enabled_cats):
                 col_idx = 5 + col_offset
                 candidates = cat.get("candidates", [])
-                disp_count = max(1, int(cat.get("display_count", 1)))
+                disp_count = max(1, int(cat.get("display_count", 5)))
 
                 if not has_bz:
                     it_skill = NumericTableWidgetItem("无数据", -1)
@@ -2355,29 +2398,14 @@ class AllAccountsBaizhanDialog(QDialog):
                     it_skill.setToolTip(f"未学习该档位技能\n\n【该档候选技能 ({len(candidates)}个)】\n{cand_text}")
                     self.table.setItem(row_idx, col_idx, it_skill)
                 else:
-                    lines = [f"{s.get('szSkillName', '')}" for s in top_skills]
-                    text = "\n".join(lines)
                     max_lvl = int(top_skills[0].get("nLevel", 0))
-                    it_skill = NumericTableWidgetItem(text, max_lvl)
+                    # 仅图标展示：底层 item 不再显示文字，避免文字透出到 widget 背后
+                    # 技能名存入 UserRole 供导出/测试/排序读取，界面由 cellWidget 横排图标呈现
+                    export_text = "\n".join(s.get('szSkillName', '') for s in top_skills)
+                    it_skill = NumericTableWidgetItem("", max_lvl)
+                    it_skill.setData(Qt.ItemDataRole.UserRole, export_text)
                     it_skill.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-
-                    # 等级颜色：按角色已学最高等级匹配规则（自上而下，命中即用）
-                    color = None
-                    for rule in self._level_colors:
-                        try:
-                            if int(rule.get("min", 1)) <= max_lvl <= int(rule.get("max", 999)):
-                                color = rule.get("color")
-                                break
-                        except (ValueError, TypeError):
-                            continue
-                    if color:
-                        it_skill.setForeground(QColor(color))
-                    if max_lvl >= 10:
-                        font = it_skill.font()
-                        font.setBold(True)
-                        it_skill.setFont(font)
-
-                    # 构建 Tooltip
+                    # Tooltip 仍保留 Lv 详情
                     learned_lines = [f"{s.get('szSkillName', '')} Lv{s.get('nLevel', 0)} ★" if s.get('szSkillName') == top_skills[0].get('szSkillName') else f"{s.get('szSkillName', '')} Lv{s.get('nLevel', 0)}" for s in learned_list]
                     tooltip_lines = [
                         f"【已学候选 ({len(learned_list)}个)】",
@@ -2387,6 +2415,84 @@ class AllAccountsBaizhanDialog(QDialog):
                     ]
                     it_skill.setToolTip("\n".join(tooltip_lines))
                     self.table.setItem(row_idx, col_idx, it_skill)
+
+                    # 图标横排：在单元格内放置 QWidget
+                    cell_w = QWidget()
+                    hbox = QHBoxLayout(cell_w)
+                    hbox.setContentsMargins(2, 2, 2, 2)
+                    hbox.setSpacing(4)
+                    hbox.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                    web_icons_dir, cache_icons_dir = self._icon_dirs
+                    enriched_skills = self._enriched_skills
+
+                    def _lvl_color(lv: int):
+                        for rule in self._level_colors:
+                            try:
+                                if int(rule.get("min", 1)) <= lv <= int(rule.get("max", 999)):
+                                    return rule.get("color")
+                            except (ValueError, TypeError):
+                                continue
+                        return "#ffffff"
+
+                    for s in top_skills:
+                        sname = s.get('szSkillName', '')
+                        try:
+                            lv = int(s.get('nLevel', 0))
+                        except (ValueError, TypeError):
+                            lv = 0
+                        color = _lvl_color(lv)
+                        # 破绽色 -> 图标边框；等级色仅用于文字
+                        try:
+                            scol = int(s.get("nColor", 0) or 0)
+                        except (ValueError, TypeError):
+                            scol = 0
+                        border_c = COLOR_STYLES.get(scol, ("#2a2a3c", "#444460", "#ffffff", "#ffffff"))[1]
+
+                        # 垂直容器：图标 + 重数徽标
+                        vbox = QVBoxLayout()
+                        vbox.setContentsMargins(0, 0, 0, 0)
+                        vbox.setSpacing(2)
+                        vbox.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+                        lbl_icon = QLabel()
+                        lbl_icon.setFixedSize(32, 32)
+                        lbl_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                        # 解析图标文件
+                        iid = None
+                        try:
+                            iid = enriched_skills.get(sname, {}).get("icon_id_jx3box") or enriched_skills.get(sname, {}).get("dwIconID")
+                        except Exception:
+                            iid = None
+                        icon_fp = os.path.join(web_icons_dir, f"{sname}.png")
+                        if not os.path.exists(icon_fp) and iid:
+                            icon_fp = os.path.join(cache_icons_dir, f"{iid}.png")
+                        if os.path.exists(icon_fp):
+                            pix = QPixmap(icon_fp)
+                            if not pix.isNull():
+                                lbl_icon.setPixmap(pix.scaled(32, 32, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                                lbl_icon.setStyleSheet(f"border:1px solid {border_c}; border-radius:4px; background:transparent;")
+                            else:
+                                lbl_icon.setText(sname[:1])
+                                lbl_icon.setStyleSheet(f"background-color:#2a2a3c; color:{color}; font-weight:bold; border-radius:4px; font-size:11px; border:1px solid {border_c};")
+                        else:
+                            lbl_icon.setText(sname[:1])
+                            lbl_icon.setStyleSheet(f"background-color:#2a2a3c; color:{color}; font-weight:bold; border-radius:4px; font-size:11px; border:1px solid {border_c};")
+
+                        lbl_lv = QLabel(f"{lv}重")
+                        lbl_lv.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                        lbl_lv.setStyleSheet(f"color:{color}; font-size:10px; font-weight:bold; background:transparent; border:none;")
+                        # 10重以上加粗已通过颜色体现，无需额外字体
+
+                        vbox.addWidget(lbl_icon, alignment=Qt.AlignmentFlag.AlignCenter)
+                        vbox.addWidget(lbl_lv, alignment=Qt.AlignmentFlag.AlignCenter)
+
+                        holder = QWidget()
+                        holder.setLayout(vbox)
+                        holder.setToolTip(f"{sname}  {lv}重")
+                        hbox.addWidget(holder)
+
+                    hbox.addStretch()
+                    self.table.setCellWidget(row_idx, col_idx, cell_w)
 
     def export_to_csv(self):
         filename, _ = QFileDialog.getSaveFileName(
@@ -2405,7 +2511,11 @@ class AllAccountsBaizhanDialog(QDialog):
                     row_data = []
                     for col in range(self.table.columnCount()):
                         item = self.table.item(row, col)
-                        row_data.append(item.text() if item else "")
+                        if item is None:
+                            row_data.append("")
+                        else:
+                            ud = item.data(Qt.ItemDataRole.UserRole)
+                            row_data.append(str(ud) if ud else item.text())
                     writer.writerow(row_data)
 
             QMessageBox.information(self, "导出成功", f"全账号百战总览已成功导出至:\n{filename}")

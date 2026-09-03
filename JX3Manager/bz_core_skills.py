@@ -476,13 +476,13 @@ def load_core_skill_categories(config_path: Optional[str] = None) -> List[Dict[s
                         enabled = item.get("enabled", True)
                         if not isinstance(enabled, bool):
                             enabled = True
-                        display_count = item.get("display_count", 1)
+                        display_count = item.get("display_count", DEFAULT_DISPLAY_COUNT)
                         try:
                             display_count = int(display_count)
                             if display_count < 1:
-                                display_count = 1
+                                display_count = DEFAULT_DISPLAY_COUNT
                         except (ValueError, TypeError):
-                            display_count = 1
+                            display_count = DEFAULT_DISPLAY_COUNT
 
                         result.append({
                             "group": g,
@@ -538,9 +538,9 @@ def save_core_skill_categories(
                 c_list = []
             enabled = bool(c.get("enabled", True))
             try:
-                display_count = max(1, int(c.get("display_count", 1)))
+                display_count = max(1, int(c.get("display_count", DEFAULT_DISPLAY_COUNT)))
             except (ValueError, TypeError):
-                display_count = 1
+                display_count = DEFAULT_DISPLAY_COUNT
 
             cleaned_cats.append({
                 "group": g,
