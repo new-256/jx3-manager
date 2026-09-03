@@ -21,6 +21,7 @@ from bz_core_skills import (
     get_skill_meta,
     get_best_candidate_skill,
     get_top_candidate_skills,
+    get_verified_cooldowns,
     CORE_CATEGORY_SLOTS,
 )
 from gui_qt import CoreSkillsConfigDialog, AllAccountsBaizhanDialog, BaizhanSkillsDialog
@@ -32,6 +33,44 @@ def qapp():
     if app is None:
         app = QApplication([])
     return app
+
+
+def test_get_verified_cooldowns_only_returns_id_matched():
+    """
+    冷却校验回归测试：baizhan_skills_enriched.json 的冷却是早期按招式名匹配通用技能库
+    得到的，大量百战招式与门派技能重名导致冷却取自错误技能。
+    get_verified_cooldowns 必须只返回 dwID 与本地 id/in_id 对得上的招式。
+    """
+    verified = get_verified_cooldowns()
+    assert isinstance(verified, dict)
+    # 全部值必须是 int
+    assert all(isinstance(v, int) for v in verified.values())
+
+    # 黑煞落贪狼 ID 可对上，冷却 60 秒，必须在校验表中
+    assert verified.get("黑煞落贪狼") == 60
+
+    # 这些招式的 enriched 冷却来自同名的其他技能，必须被剔除
+    for bad in ("厄毒爆发", "蚀骨之花", "血狱隐杀", "七荒黑牙"):
+        assert bad not in verified, f"{bad} 的冷却不可信（ID 不匹配），不应通过校验"
+
+    # 可信数量应远小于招式总数（实测 12/156），防止回退到全量误信
+    assert len(verified) < 30
+
+
+def test_derive_only_tiers_verified_cooldown_skills():
+    """未通过冷却校验的招式必须落在 10S 档，不得凭错误冷却分入 1分钟/30S 档"""
+    cats = derive_core_skill_categories()
+    verified = get_verified_cooldowns()
+
+    for c in cats:
+        if c["window"] in ("1分钟", "30S"):
+            for sname in c["candidates"]:
+                cd = verified.get(sname)
+                assert cd is not None, f"{sname} 冷却不可信却被分入 {c['window']} 档"
+                if c["window"] == "1分钟":
+                    assert cd >= 31
+                else:
+                    assert 11 <= cd <= 30
 
 
 def test_load_core_skill_categories_normal():
@@ -54,13 +93,19 @@ def test_load_core_skill_categories_normal():
         assert "enabled" in cats[i]
         assert "display_count" in cats[i]
 
-    # 验证关键候选技能归类
+    # 验证关键候选技能归类（冷却数据经 ID 校验，仅 12 个可信）
+    # 打精·1分钟 无冷确信的 cd≥31 打精招式 -> 空
     jing_1m = next(c["candidates"] for c in cats if c["group"] == "打精" and c["window"] == "1分钟")
-    assert "厄毒爆发" in jing_1m
-    assert "蚀骨之花" in jing_1m
+    assert len(jing_1m) == 0
+    # 打精·10S 包含全部打精招式（冷却不可信或不可信 <=10 的均归此处）
+    jing_10s = next(c["candidates"] for c in cats if c["group"] == "打精" and c["window"] == "10S")
+    assert "厄毒爆发" in jing_10s
+    assert "蚀骨之花" in jing_10s
+    assert len(jing_10s) == 43
 
     nai_1m = next(c["candidates"] for c in cats if c["group"] == "打耐" and c["window"] == "1分钟")
-    assert "黑煞落贪狼" in nai_1m
+    assert "黑煞落贪狼" in nai_1m  # 唯一可信的 cd=60 打耐招式
+    assert len(nai_1m) == 1
 
     hf_core = next(c["candidates"] for c in cats if c["group"] == "回复" and c["window"] == "核心")
     assert "万蛇骨" in hf_core

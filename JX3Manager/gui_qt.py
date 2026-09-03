@@ -1437,10 +1437,8 @@ class CoreSkillsConfigDialog(QDialog):
         self.init_ui()
 
     def _format_skill_label(self, sname: str) -> str:
-        meta = self._skill_meta_cache.get(sname) or self._get_skill_meta(sname)
-        cd = meta.get("cooldown")
-        cd_str = f"cd{cd}s" if cd is not None else "cd-"
-        return f"{sname} ({cd_str})"
+        # 冷却数据不可信（仅 8% 正确），不再显示，直接返回技能名
+        return sname
 
     def _get_skill_tooltip(self, sname: str) -> str:
         meta = self._skill_meta_cache.get(sname) or self._get_skill_meta(sname)
@@ -1448,9 +1446,7 @@ class CoreSkillsConfigDialog(QDialog):
         if not detail:
             return sname
         short = detail[:200] + ("..." if len(detail) > 200 else "")
-        cd = meta.get("cooldown")
-        cd_info = f"【冷却时间】: {cd} 秒\n" if cd is not None else ""
-        return f"【{sname}】\n{cd_info}{short}"
+        return f"【{sname}】\n{short}"
 
     def init_ui(self):
         main_layout = QVBoxLayout(self)
@@ -1673,6 +1669,16 @@ class CoreSkillsConfigDialog(QDialog):
         bottom_bar.addWidget(self.btn_save)
 
         main_layout.addLayout(bottom_bar)
+
+        # 底部数据说明
+        lbl_data_note = QLabel(
+            "ℹ️ 自动推导仅按招式描述的打击类型（打精/打耐/回复）归类，全部归入 10S 档；"
+            "1分钟 / 30S 档需按需手动划分。\n"
+            "　　原因：本地招式库的冷却字段由早期按招式名匹配通用技能库生成，156 个招式中仅 12 个可信，故不作为分档依据。"
+        )
+        lbl_data_note.setStyleSheet("font-size: 11px; color: #8888aa; margin-top: 6px; line-height: 1.5;")
+        lbl_data_note.setWordWrap(True)
+        main_layout.addWidget(lbl_data_note)
 
         # 填充全部技能列表
         self.populate_all_skills_list()

@@ -50,23 +50,90 @@ def _find_data_file(filename: str, explicit_path: Optional[str] = None) -> Optio
     return None
 
 
+def get_verified_cooldowns(
+    enriched_path: Optional[str] = None,
+    skills_path: Optional[str] = None
+) -> Dict[str, int]:
+    """
+    返回【经 ID 校验确认可信】的招式冷却表 {招式名: 冷却秒数}。
+
+    baizhan_skills_enriched.json 的冷却是早期按“招式名”去通用技能库匹配得到的，
+    而大量百战招式与门派/其他技能重名，匹配到了错误的技能。
+    此处用 baizhan_skills.json 的权威 id / in_id 反查校验：
+    只有 enriched 的 dwID 与本地 id 或 in_id 对得上，其冷却才采信。
+    实测 156 个招式中仅 12 个通过校验。
+    """
+    actual_enriched = _find_data_file("baizhan_skills_enriched.json", enriched_path)
+    actual_skills = _find_data_file("baizhan_skills.json", skills_path)
+
+    enriched: Dict[str, Dict[str, Any]] = {}
+    if actual_enriched and os.path.exists(actual_enriched):
+        try:
+            with open(actual_enriched, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                enriched = data.get("skills", {}) if isinstance(data, dict) else {}
+        except Exception as e:
+            logger.warning(f"读取 baizhan_skills_enriched.json 失败: {e}")
+
+    id_map: Dict[str, Tuple[Any, Any]] = {}
+    if actual_skills and os.path.exists(actual_skills):
+        try:
+            with open(actual_skills, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                for s in (data.get("skills") or []):
+                    if isinstance(s, dict) and s.get("name"):
+                        id_map[s["name"]] = (s.get("id"), s.get("in_id"))
+        except Exception as e:
+            logger.warning(f"读取 baizhan_skills.json 失败: {e}")
+
+    verified: Dict[str, int] = {}
+    for name, info in enriched.items():
+        if not isinstance(info, dict):
+            continue
+        cd = info.get("cooldown")
+        if cd is None:
+            continue
+        ids = id_map.get(name)
+        if not ids:
+            continue
+        if info.get("dwID") in ids:
+            try:
+                verified[name] = int(cd)
+            except (ValueError, TypeError):
+                continue
+    return verified
+
+
 def derive_core_skill_categories(
     desc_path: Optional[str] = None,
     enriched_path: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
-    从 bz_skill_desc.json (打击类型) 与 baizhan_skills_enriched.json (冷却CD) 自动推导 7 档核心技能。
-    规则:
+    从 bz_skill_desc.json (招式描述) 自动推导核心招式分类。
+
+    分类规则（打击类型，来自招式描述，可信）：
       - 描述含 '精神打击' -> 打精
       - 描述含 '耐力打击' -> 打耐
-      - 描述含 '恢复' 且 ('气血' in 描述 or '精神' in 描述 or '耐力' in 描述) -> 回复
-      - CD分档: CD >= 31 -> 1分钟档; 11 <= CD <= 30 -> 30S档; CD <= 10 -> 10S档
-      - 回复分档: window 为 '核心'
-      - 每档 candidates 按 (cd 降序, 技能名 降序) 排序
-      - 默认补全 enabled=True, display_count=1
+      - 描述含 '恢复' 且 ('气血' or '精神' or '耐力') -> 回复
+
+    档位规则（仅采用经 ID 校验的冷却，见 get_verified_cooldowns）：
+      - 冷却可信且 >= 31 -> '1分钟' 档
+      - 冷却可信且 11-30 -> '30S' 档
+      - 其余（冷却可信且 <=10、或冷却不可信/缺失）-> '10S' 档
+      - 回复类统一归入 '核心' 档
+      - 候选按招式名排序；默认补全 enabled=True, display_count=1
+
+    【为什么绝大多数招式不按冷却分档】
+    baizhan_skills_enriched.json 的 cooldown 是早期按“招式名”匹配通用技能库生成的，
+    大量百战招式与门派/其他技能重名 -> 匹配到错误技能。经 ID 校验：
+      - 156 个招式中仅 12 个冷却可信
+      - 54 个的冷却实际来自同名的其他技能（错误）
+      - 90 个无冷却数据（旧逻辑按 cd=0 一律塞进 10S 档）
+    因此只有通过校验的招式才自动分档，其余一律放入 10S 档由用户手动划分，
+    避免用错误数据得出错误档位。
+    冷却暂无可信数据源（JX3API 无招式元数据接口，jx3box 按 ID 查不到百战招式）。
     """
     actual_desc_path = _find_data_file("bz_skill_desc.json", desc_path)
-    actual_enriched_path = _find_data_file("baizhan_skills_enriched.json", enriched_path)
 
     descs: Dict[str, Dict[str, Any]] = {}
     if actual_desc_path and os.path.exists(actual_desc_path):
@@ -76,22 +143,20 @@ def derive_core_skill_categories(
         except Exception as e:
             logger.warning(f"读取 bz_skill_desc.json 失败: {e}")
 
-    enriched_skills: Dict[str, Dict[str, Any]] = {}
-    if actual_enriched_path and os.path.exists(actual_enriched_path):
-        try:
-            with open(actual_enriched_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                enriched_skills = data.get("skills", {}) if isinstance(data, dict) else {}
-        except Exception as e:
-            logger.warning(f"读取 baizhan_skills_enriched.json 失败: {e}")
+    verified_cd = get_verified_cooldowns(enriched_path=enriched_path)
 
-    jing_1m: List[Tuple[str, int]] = []
-    jing_30s: List[Tuple[str, int]] = []
-    jing_10s: List[Tuple[str, int]] = []
-    nai_1m: List[Tuple[str, int]] = []
-    nai_30s: List[Tuple[str, int]] = []
-    nai_10s: List[Tuple[str, int]] = []
-    hf_core: List[Tuple[str, int]] = []
+    def window_for(name: str) -> str:
+        """仅对冷却可信的招式分档，其余归 10S 档待用户手动划分"""
+        cd = verified_cd.get(name)
+        if cd is None:
+            return "10S"
+        if cd >= 31:
+            return "1分钟"
+        if cd >= 11:
+            return "30S"
+        return "10S"
+
+    buckets: Dict[Tuple[str, str], List[str]] = {slot: [] for slot in CORE_CATEGORY_SLOTS}
 
     for name, info in descs.items():
         if not isinstance(info, dict):
@@ -100,47 +165,19 @@ def derive_core_skill_categories(
         if not detail:
             continue
 
-        cd_val = enriched_skills.get(name, {}).get("cooldown", 0)
-        try:
-            cd = int(cd_val) if cd_val is not None else 0
-        except (ValueError, TypeError):
-            cd = 0
+        win = window_for(name)
 
-        is_jing = "精神打击" in detail
-        is_nai = "耐力打击" in detail
-        is_hf = "恢复" in detail and ("气血" in detail or "精神" in detail or "耐力" in detail)
+        if "精神打击" in detail:
+            buckets[("打精", win)].append(name)
+        if "耐力打击" in detail:
+            buckets[("打耐", win)].append(name)
+        if "恢复" in detail and ("气血" in detail or "精神" in detail or "耐力" in detail):
+            buckets[("回复", "核心")].append(name)
 
-        if is_jing:
-            if cd >= 31:
-                jing_1m.append((name, cd))
-            elif cd >= 11:
-                jing_30s.append((name, cd))
-            else:
-                jing_10s.append((name, cd))
+    for lst in buckets.values():
+        lst.sort()
 
-        if is_nai:
-            if cd >= 31:
-                nai_1m.append((name, cd))
-            elif cd >= 11:
-                nai_30s.append((name, cd))
-            else:
-                nai_10s.append((name, cd))
-
-        if is_hf:
-            hf_core.append((name, cd))
-
-    for lst in (jing_1m, jing_30s, jing_10s, nai_1m, nai_30s, nai_10s, hf_core):
-        lst.sort(key=lambda x: (x[1], x[0]), reverse=True)
-
-    category_map = {
-        ("打精", "1分钟"): [x[0] for x in jing_1m],
-        ("打精", "30S"): [x[0] for x in jing_30s],
-        ("打精", "10S"): [x[0] for x in jing_10s],
-        ("打耐", "1分钟"): [x[0] for x in nai_1m],
-        ("打耐", "30S"): [x[0] for x in nai_30s],
-        ("打耐", "10S"): [x[0] for x in nai_10s],
-        ("回复", "核心"): [x[0] for x in hf_core],
-    }
+    category_map = buckets
 
     return [
         {
