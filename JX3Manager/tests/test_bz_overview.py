@@ -389,7 +389,7 @@ def test_core_skill_categories_fallback_on_missing_or_corrupt_file(tmp_path):
         assert cats[i]["group"] == grp
         assert cats[i]["window"] == win
         assert cats[i]["enabled"] is True
-        assert cats[i]["display_count"] == 1
+        assert cats[i]["display_count"] == 5  # 默认取各档满级数值最高的前 5 个
 
     # 损坏文件测试
     bad_file = tmp_path / "bad.json"

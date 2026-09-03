@@ -58,6 +58,85 @@ SKILL_LEVEL_WINDOW: Dict[int, str] = {
     3: "1分钟",
 }
 
+# 默认等级颜色规则：按角色已学最高等级着色（可在分类配置界面调节）
+# 规则自上而下匹配，命中即用；最后一条（等级最高段）加粗显示
+DEFAULT_LEVEL_COLORS: List[Dict[str, Any]] = [
+    {"min": 1, "max": 8, "color": "#e53935"},    # 1-8级 红色
+    {"min": 9, "max": 9, "color": "#fdd835"},    # 9级 黄色
+    {"min": 10, "max": 999, "color": "#43a047"}, # 10级及以上 绿色
+]
+
+# 各档默认展示技能数（表格单元格内垂直列出的技能条数）
+DEFAULT_DISPLAY_COUNT = 5
+
+_STRIKE_RE = re.compile(r"\[([\d/.]+)\]\s*点(精神打击|耐力打击)")
+
+
+def get_strike_values(desc_path: Optional[str] = None) -> Dict[str, Dict[str, int]]:
+    """
+    从 bz_skill_desc.json 解析各招式满级(数值数组最后一段)的打击值。
+
+    返回 {招式名: {"精神": 满级精神打击值, "耐力": 满级耐力打击值}}，
+    只含描述里带数值数组的招式（156 个中约 82 条匹配）。
+    用于各档候选按满级打精/打耐数值排序。
+    """
+    actual = _find_data_file("bz_skill_desc.json", desc_path)
+    out: Dict[str, Dict[str, int]] = {}
+    if not actual or not os.path.exists(actual):
+        return out
+    try:
+        with open(actual, "r", encoding="utf-8") as f:
+            descs = json.load(f)
+    except Exception as e:
+        logger.warning(f"读取 bz_skill_desc.json 打击值失败: {e}")
+        return out
+    for name, info in descs.items():
+        if not isinstance(info, dict):
+            continue
+        detail = info.get("detail", "") or ""
+        for vals, kind in _STRIKE_RE.findall(detail):
+            try:
+                full = int(vals.split("/")[-1])
+            except (ValueError, TypeError):
+                continue
+            key = "精神" if kind == "精神打击" else "耐力"
+            d = out.setdefault(name, {})
+            # 同一招式同类型多次匹配取最大值
+            d[key] = max(d.get(key, 0), full)
+    return out
+
+
+def get_level_colors(config_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    读取等级颜色规则配置（bz_core_skills.json 的 level_colors 字段）。
+    缺失或格式非法时返回默认规则 DEFAULT_LEVEL_COLORS。
+    每条规则: {"min": int, "max": int, "color": "#rrggbb"}
+    """
+    path = config_path or get_core_skills_config_path()
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            raw = data.get("level_colors")
+            if isinstance(raw, list) and raw:
+                rules = []
+                for item in raw:
+                    if not isinstance(item, dict):
+                        continue
+                    try:
+                        mn = int(item.get("min", 1))
+                        mx = int(item.get("max", 1))
+                        color = str(item.get("color", "")).strip()
+                        if mn <= mx and color.startswith("#") and len(color) in (4, 7, 9):
+                            rules.append({"min": mn, "max": mx, "color": color})
+                    except (ValueError, TypeError):
+                        continue
+                if rules:
+                    return rules
+        except Exception as e:
+            logger.warning(f"读取等级颜色规则失败: {e}")
+    return [dict(r) for r in DEFAULT_LEVEL_COLORS]
+
 
 def get_skill_levels(meta_path: Optional[str] = None) -> Dict[str, int]:
     """
@@ -230,7 +309,10 @@ def derive_core_skill_categories(
       - 0秒(无调息)/25/50/300秒 -> 就近归档 (0/10->10S, 25/30/50->30S, 60/300->1分钟)
       - 无调息数据 (None, 网页显示 '-') -> 10S 档（待手动划分）
       - 回复类统一归入 '核心' 档
-      - 候选按招式名排序；默认补全 enabled=True, display_count=1
+
+    候选排序：打精/打耐按描述中满级(数组末段)打击值降序 —— 默认配置即
+    各档满级数值最高的技能排前面，配合 display_count=5 取 Top5；
+    回复类按招式名排序。默认 display_count=5。
 
     覆盖统计：156 个招式中 146 个有明确调息时间，10 个无数据归 10S 档。
     """
@@ -245,6 +327,7 @@ def derive_core_skill_categories(
             logger.warning(f"读取 bz_skill_desc.json 失败: {e}")
 
     cds = get_skill_cooldowns()
+    strikes = get_strike_values(desc_path=actual_desc_path)
 
     def window_for(name: str) -> str:
         """按 jx3box 调息时间分档，无数据归 10S"""
@@ -256,6 +339,12 @@ def derive_core_skill_categories(
         if cd <= 30:            # 25/30 秒
             return "30S"
         return "1分钟"          # 50/60/300 秒
+
+    def strike_key(grp: str, name: str):
+        """该档打击类型的满级数值（降序排序用），无数据排最后"""
+        key = "精神" if grp == "打精" else "耐力"
+        v = (strikes.get(name) or {}).get(key, 0)
+        return v
 
     buckets: Dict[Tuple[str, str], List[str]] = {slot: [] for slot in CORE_CATEGORY_SLOTS}
 
@@ -273,7 +362,7 @@ def derive_core_skill_categories(
         if "恢复" in detail and ("气血" in detail or "精神" in detail or "耐力" in detail):
             buckets[("回复", "核心")].append(name)
 
-    # 按档位重新分配 打精/打耐
+    # 按档位重新分配 打精/打耐；同档内按满级打击值降序（默认取数值最高的前 5 个）
     for grp in ("打精", "打耐"):
         all_names = list(buckets[(grp, "10S")])
         buckets[(grp, "10S")] = []
@@ -282,9 +371,12 @@ def derive_core_skill_categories(
         for name in all_names:
             win = window_for(name)
             buckets[(grp, win)].append(name)
+        for win in ("10S", "30S", "1分钟"):
+            buckets[(grp, win)].sort(key=lambda n: strike_key(grp, n), reverse=True)
 
-    for lst in buckets.values():
-        lst.sort()
+    for (grp, win) in buckets:
+        if grp in ("打精", "打耐"):
+            pass  # 已按打击值排序
 
     category_map = buckets
 
@@ -294,7 +386,7 @@ def derive_core_skill_categories(
             "window": win,
             "candidates": category_map.get((grp, win), []),
             "enabled": True,
-            "display_count": 1,
+            "display_count": DEFAULT_DISPLAY_COUNT,
         }
         for grp, win in CORE_CATEGORY_SLOTS
     ]
@@ -352,15 +444,31 @@ def load_core_skill_categories(config_path: Optional[str] = None) -> List[Dict[s
 
 def save_core_skill_categories(
     categories: List[Dict[str, Any]],
-    config_path: Optional[str] = None
+    config_path: Optional[str] = None,
+    level_colors: Optional[List[Dict[str, Any]]] = None,
 ) -> bool:
     """
     将核心技能分类配置写回 json 文件。
-    保留 _note 与 _rule 说明字段，UTF-8 编码，ensure_ascii=False，indent=2。
+    保留 _note/_rule 说明字段，UTF-8 编码，ensure_ascii=False，indent=2。
+    level_colors 为等级颜色规则列表（None 时沿用文件里已有的配置，再无则用默认值）。
     写失败返回 False 并记录 warning，不抛异常。
     """
     path = config_path or get_core_skills_config_path()
     try:
+        # 未显式传入时沿用文件里已有的 level_colors 配置
+        if level_colors is None:
+            level_colors = None
+            if os.path.exists(path):
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        old = json.load(f)
+                    if isinstance(old.get("level_colors"), list) and old["level_colors"]:
+                        level_colors = old["level_colors"]
+                except Exception:
+                    pass
+            if level_colors is None:
+                level_colors = [dict(r) for r in DEFAULT_LEVEL_COLORS]
+
         cleaned_cats = []
         for c in categories:
             if not isinstance(c, dict):
@@ -385,8 +493,9 @@ def save_core_skill_categories(
             })
 
         data = {
-            "_note": "核心技能分类映射，可手动编辑或通过UI配置。每档 candidates 里列出候选技能名，表格取角色已学候选中等级最高的前 N 个展示。留空则该档显示 —",
-            "_rule": "默认由 bz_skill_desc.json(打击类型) + baizhan_skills_enriched.json(冷却) 自动推导：cd>=31→1分钟档, 11-30→30S档, <=10→10S档",
+            "_note": "核心技能分类映射，可手动编辑或通过UI配置。每档 candidates 里列出候选技能名（打精/打耐按满级打击值降序），表格取角色已学候选中等级最高的前 N 个展示（默认 5 个）。留空则该档显示 —。level_colors 为表格等级颜色规则（自上而下匹配，min/max 为等级区间，color 为十六进制颜色）。",
+            "_rule": "默认由 bz_skill_desc.json(打击类型+满级打击值排序) + bz_skill_cd.json(jx3box 调息时间分档: <=10s→10S, <=30s→30S, >30s→1分钟) 自动推导；display_count 默认 5",
+            "level_colors": level_colors,
             "categories": cleaned_cats
         }
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)

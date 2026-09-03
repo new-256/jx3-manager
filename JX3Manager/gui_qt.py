@@ -5,6 +5,7 @@ import os
 import sys
 import json
 import csv
+import re
 import datetime
 from typing import List, Dict, Any, Tuple, Optional
 from PIL import Image
@@ -1404,12 +1405,14 @@ class CoreSkillsConfigDialog(QDialog):
 
         # 招式调息时间（jx3box 数据，覆盖全部 156 个）与消耗点数（占用技能格），用于标注与筛选
         try:
-            from bz_core_skills import get_skill_cooldowns, get_skill_costs
+            from bz_core_skills import get_skill_cooldowns, get_skill_costs, get_level_colors
             self._skill_cds = get_skill_cooldowns()
             self._skill_costs = get_skill_costs()
+            self._level_colors = get_level_colors(self.config_path)
         except Exception:
             self._skill_cds = {}
             self._skill_costs = {}
+            self._level_colors = []
 
         self.current_cat_idx = -1
         self._is_updating_ui = False
@@ -1576,11 +1579,35 @@ class CoreSkillsConfigDialog(QDialog):
 
         self.spin_display_count = QSpinBox()
         self.spin_display_count.setRange(1, 10)
-        self.spin_display_count.setValue(1)
+        self.spin_display_count.setValue(5)
         self.spin_display_count.setFixedWidth(65)
-        self.spin_display_count.setToolTip("该分类在总览表格中展示前 N 个已学最高等级技能")
+        self.spin_display_count.setToolTip("该分类在总览表格中展示前 N 个已学最高等级技能（默认 5）")
         self.spin_display_count.valueChanged.connect(self.on_display_count_changed)
         top_edit_bar.addWidget(self.spin_display_count)
+
+        # 等级颜色规则编辑（3 行：min/max/color），写入 bz_core_skills.json 的 level_colors
+        lbl_lvc = QLabel("等级颜色:")
+        lbl_lvc.setStyleSheet("font-weight: bold;")
+        top_edit_bar.addWidget(lbl_lvc)
+
+        self._lv_color_rows = []  # [(spin_min, spin_max, btn_color), ...]
+        lv_colors_box = QHBoxLayout()
+        lv_colors_box.setSpacing(4)
+        for i in range(3):
+            row = []
+            smin = QSpinBox(); smin.setRange(1, 99); smin.setFixedWidth(46)
+            smax = QSpinBox(); smax.setRange(1, 999); smax.setFixedWidth(46)
+            btn = QPushButton(); btn.setFixedSize(30, 22)
+            btn.setFlat(True)
+            lv_colors_box.addWidget(QLabel("Lv" if i == 0 else ""))
+            lv_colors_box.addWidget(smin)
+            lv_colors_box.addWidget(QLabel("-" if i == 0 else "~"))
+            lv_colors_box.addWidget(smax)
+            lv_colors_box.addWidget(btn)
+            row = (smin, smax, btn)
+            self._lv_color_rows.append(row)
+            btn.clicked.connect(lambda _=False, idx=i: self._pick_lv_color(idx))
+        top_edit_bar.addLayout(lv_colors_box)
 
         edit_layout.addLayout(top_edit_bar)
 
@@ -1810,16 +1837,55 @@ class CoreSkillsConfigDialog(QDialog):
         self.lbl_cat_title.setText(f"📌 分类：{cat.get('group', '')} · {cat.get('window', '')}")
 
         self._is_updating_ui = True
-        self.spin_display_count.setValue(cat.get("display_count", 1))
+        self.spin_display_count.setValue(cat.get("display_count", 5))
+        self._refresh_lv_color_rows()
         self._is_updating_ui = False
 
         self.refresh_candidates_list()
+
+    def _refresh_lv_color_rows(self):
+        """把 self._level_colors 规则刷到 3 行颜色编辑器上"""
+        rules = (self._level_colors or [])[:3]
+        while len(rules) < 3:
+            rules.append({"min": 1, "max": 1, "color": "#888888"})
+        for i, (smin, smax, btn) in enumerate(self._lv_color_rows):
+            r = rules[i]
+            smin.setValue(int(r["min"]))
+            smax.setValue(int(r["max"]))
+            btn.setStyleSheet(f"background-color: {r['color']}; border: 1px solid #666;")
+
+    def _pick_lv_color(self, idx: int):
+        """弹出取色器修改第 idx 行的颜色"""
+        from PyQt6.QtWidgets import QColorDialog
+        smin, smax, btn = self._lv_color_rows[idx]
+        cur = QColor(btn.styleSheet().split("background-color:")[-1].split(";")[0].strip() or "#ffffff")
+        color = QColorDialog.getColor(cur, self, "选择该等级段颜色")
+        if color.isValid():
+            btn.setStyleSheet(f"background-color: {color.name()}; border: 1px solid #666;")
+            # 立即写回 self._level_colors
+            rules = list(self._level_colors or [])[:3]
+            while len(rules) < 3:
+                rules.append({"min": 1, "max": 1, "color": "#888888"})
+            rules[idx]["color"] = color.name()
+            self._level_colors = rules
 
     def on_display_count_changed(self, val: int):
         if self._is_updating_ui or self.current_cat_idx < 0 or self.current_cat_idx >= len(self.categories):
             return
         self.categories[self.current_cat_idx]["display_count"] = val
         self.update_current_cat_item_text()
+
+    def _collect_lv_colors(self):
+        """从 3 行编辑器收集等级颜色规则，返回规则列表（自上而下匹配）"""
+        rules = []
+        for smin, smax, btn in self._lv_color_rows:
+            mn, mx = smin.value(), smax.value()
+            if mn > mx:
+                mn, mx = mx, mn
+            m = re.search(r"background-color:\s*(#[0-9a-fA-F]{3,8})", btn.styleSheet())
+            color = m.group(1) if m else "#888888"
+            rules.append({"min": mn, "max": mx, "color": color})
+        return rules
 
     def refresh_candidates_list(self):
         if self.current_cat_idx < 0 or self.current_cat_idx >= len(self.categories):
@@ -2034,7 +2100,7 @@ class CoreSkillsConfigDialog(QDialog):
     def reset_to_default(self):
         res = QMessageBox.question(
             self, "确认恢复默认",
-            "确定要恢复为默认的 7 档分类配置吗？\n当前所有自定义分类与修改都将丢失。",
+            "确定要恢复为默认的 7 档分类配置吗？\n默认展示各档满级打击值最高的前 5 个技能，\n当前所有自定义分类与修改都将丢失。",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if res == QMessageBox.StandardButton.Yes:
@@ -2048,7 +2114,11 @@ class CoreSkillsConfigDialog(QDialog):
             if i < len(self.categories):
                 self.categories[i]["enabled"] = (item.checkState() == Qt.CheckState.Checked)
 
-        ok = self._save_core_skill_categories(self.categories, config_path=self.config_path)
+        ok = self._save_core_skill_categories(
+            self.categories,
+            config_path=self.config_path,
+            level_colors=self._collect_lv_colors(),
+        )
         if ok:
             self.saved = True
             self.accept()
@@ -2073,13 +2143,15 @@ class AllAccountsBaizhanDialog(QDialog):
             load_core_skill_categories,
             get_best_candidate_skill,
             get_top_candidate_skills,
-            get_core_skills_config_path
+            get_core_skills_config_path,
+            get_level_colors,
         )
         self._load_core_skill_categories = load_core_skill_categories
         self._get_best_candidate_skill = get_best_candidate_skill
         self._get_top_candidate_skills = get_top_candidate_skills
         self._get_core_skills_config_path = get_core_skills_config_path
         self.categories = self._load_core_skill_categories(self.config_path)
+        self._level_colors = get_level_colors(self.config_path)
 
         self.setStyleSheet("""
             QDialog { background-color: #1e1e2d; color: #ffffff; font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; }
@@ -2157,6 +2229,8 @@ class AllAccountsBaizhanDialog(QDialog):
         dlg = CoreSkillsConfigDialog(config_path=self.config_path, parent=self)
         if dlg.exec() and getattr(dlg, "saved", False):
             self.categories = self._load_core_skill_categories(self.config_path)
+            from bz_core_skills import get_level_colors
+            self._level_colors = get_level_colors(self.config_path)
             self.rebuild_table()
 
     def rebuild_table(self):
@@ -2287,16 +2361,21 @@ class AllAccountsBaizhanDialog(QDialog):
                     it_skill = NumericTableWidgetItem(text, max_lvl)
                     it_skill.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
-                    # 颜色与字体
+                    # 等级颜色：按角色已学最高等级匹配规则（自上而下，命中即用）
+                    color = None
+                    for rule in self._level_colors:
+                        try:
+                            if int(rule.get("min", 1)) <= max_lvl <= int(rule.get("max", 999)):
+                                color = rule.get("color")
+                                break
+                        except (ValueError, TypeError):
+                            continue
+                    if color:
+                        it_skill.setForeground(QColor(color))
                     if max_lvl >= 10:
-                        it_skill.setForeground(QColor("#4caf50"))
                         font = it_skill.font()
                         font.setBold(True)
                         it_skill.setFont(font)
-                    elif max_lvl >= 7:
-                        it_skill.setForeground(QColor("#40a9ff"))
-                    else:
-                        it_skill.setForeground(QColor("#ffa726"))
 
                     # 构建 Tooltip
                     learned_lines = [f"{s.get('szSkillName', '')} Lv{s.get('nLevel', 0)}" for s in learned_list]
