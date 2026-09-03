@@ -20,6 +20,7 @@ JX3Manager/export/
 
 # 个人游戏数据（角色备注 / 换将点数 / 修罗校正是个人数据）
 JX3Manager/data/char_notes.json
+JX3Manager/data/bench_chars.json
 JX3Manager/data/huanjiang_points.json
 JX3Manager/data/xiuluo_override.json
 JX3Manager/data/dungeon_names_learned.json

@@ -392,6 +392,12 @@ def save_huanjiang_points(data_dict):
         logger.error(f"Failed to save huanjiang_points.json: {e}")
         return False
 
+def filter_out_benched(chars: list[dict]) -> list[dict]:
+    """过滤掉 is_benched 为 True 的待选区角色"""
+    if not chars:
+        return []
+    return [c for c in chars if not c.get("is_benched", False)]
+
 class JX3Manager:
     def __init__(self, game_path=None):
         config = get_cached_config()
@@ -401,6 +407,7 @@ class JX3Manager:
         self.weekly_bosses = None
         self.custom_xiuluo_boss = None
         self.active_calendar = None
+        self.bench_mgr = None
 
     def update_custom_xiuluo_boss(self, new_boss_name):
         self.custom_xiuluo_boss = new_boss_name
@@ -545,6 +552,12 @@ class JX3Manager:
             c["perm_note"] = perm
             c["weekly_note"] = weekly
 
+        logger.info("Loading bench list...")
+        from readers.bench_chars import BenchManager
+        self.bench_mgr = BenchManager()
+        for name, c in self.characters.items():
+            c["is_benched"] = self.bench_mgr.is_benched(name)
+
         # Load disk-cached baizhan API data
         for name, c in self.characters.items():
             old_c = old_chars.get(name, {})
@@ -559,6 +572,25 @@ class JX3Manager:
 
         logger.info(f"Loaded {len(self.characters)} characters")
         return self.characters
+
+    def set_char_benched(self, name: str, benched: bool) -> bool:
+        """设置角色是否进入待选区，同步 bench_mgr 与 self.characters[name]['is_benched']"""
+        if not name:
+            return False
+        if not hasattr(self, "bench_mgr") or self.bench_mgr is None:
+            from readers.bench_chars import BenchManager
+            self.bench_mgr = BenchManager()
+        if benched:
+            self.bench_mgr.add(name)
+        else:
+            self.bench_mgr.remove(name)
+        if name in self.characters:
+            self.characters[name]["is_benched"] = benched
+        return True
+
+    def get_active_characters(self) -> dict:
+        """获取未进入待选区的活跃角色 dict"""
+        return {k: v for k, v in self.characters.items() if not v.get("is_benched", False)}
 
     def fetch_active_calendar(self, force_refresh=True):
         from readers.baizhan_api import api as bz_api
@@ -594,7 +626,7 @@ class JX3Manager:
             path = os.path.join(os.path.dirname(__file__), "data", "export.json")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         data = {
-            "characters": list(self.characters.values()),
+            "characters": list(self.get_active_characters().values()),
             "export_time": __import__("datetime").datetime.now().isoformat()
         }
         with open(path, "w", encoding="utf-8") as f:

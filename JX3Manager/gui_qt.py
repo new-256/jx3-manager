@@ -21,7 +21,7 @@ from PyQt6.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QCursor, QBrush
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from main import JX3Manager, get_boss_aliases, get_floors_for_skill_boss, ANOMALY_MAP, filter_cd_dungeon_ids
+from main import JX3Manager, get_boss_aliases, get_floors_for_skill_boss, ANOMALY_MAP, filter_cd_dungeon_ids, filter_out_benched
 from readers.plugin_settings import enable_all_stats
 from combat_log_config import enable_combat_logs_for_all
 from config_loader import get_cached_config, save_config, validate_config
@@ -1998,7 +1998,7 @@ class AllAccountsBaizhanDialog(QDialog):
     def __init__(self, mgr, all_chars, config_path: Optional[str] = None, parent=None):
         super().__init__(parent)
         self.mgr = mgr
-        self.all_chars = all_chars or []
+        self.all_chars = filter_out_benched(all_chars) if all_chars else []
         self.config_path = config_path
         self.setWindowTitle("📊 全账号百战技能总览")
         self.resize(1400, 800)
@@ -2276,7 +2276,7 @@ class BaizhanSkillsDialog(QDialog):
     def __init__(self, mgr, all_chars, default_char_name=None, parent=None):
         super().__init__(parent)
         self.mgr = mgr
-        self.all_chars = all_chars or []
+        self.all_chars = filter_out_benched(all_chars) if all_chars else []
         self.current_bz_char_name = default_char_name
         self.skill_descs = self.load_skill_descriptions()
         self.active_color_filter = None
@@ -3200,8 +3200,152 @@ class BaizhanSkillsDialog(QDialog):
 
     def open_all_accounts_overview(self):
         """打开全账号百战技能总览弹窗"""
-        dlg = AllAccountsBaizhanDialog(self.mgr, self.all_chars, parent=self)
+        active_chars = filter_out_benched(self.all_chars)
+        dlg = AllAccountsBaizhanDialog(self.mgr, active_chars, parent=self)
         dlg.exec()
+
+
+class BenchManagerDialog(QDialog):
+    """🪑 待选区管理弹窗"""
+    def __init__(self, mgr, parent=None):
+        super().__init__(parent)
+        self.mgr = mgr
+        self.setWindowTitle("🪑 待选区管理")
+        self.resize(460, 520)
+        self.setStyleSheet(DARK_QSS)
+        icon = get_app_icon()
+        if not icon.isNull():
+            self.setWindowIcon(icon)
+        self.init_ui()
+        self.load_bench_list()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        lbl_tip = QLabel("待选区角色不参与所有表格统计、副本汇总及百战总览。\n可在此集中查看并将角色移出待选区。")
+        lbl_tip.setStyleSheet("color: #b0bec5; font-size: 12px; line-height: 1.4;")
+        layout.addWidget(lbl_tip)
+
+        self.list_bench = QListWidget()
+        self.list_bench.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.list_bench.setStyleSheet("""
+            QListWidget {
+                background-color: #1e1e24;
+                border: 1px solid #3f3f46;
+                border-radius: 6px;
+                padding: 6px;
+                font-size: 13px;
+                color: #e0e0e0;
+            }
+            QListWidget::item {
+                padding: 6px 10px;
+                border-radius: 4px;
+                margin-bottom: 2px;
+            }
+            QListWidget::item:hover {
+                background-color: #2a2a35;
+            }
+            QListWidget::item:selected {
+                background-color: #3b8ed0;
+                color: #ffffff;
+            }
+        """)
+        layout.addWidget(self.list_bench)
+
+        self.lbl_empty = QLabel("待选区为空。\n可在角色表格中右键角色将其移入待选区。")
+        self.lbl_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_empty.setStyleSheet("color: #777788; font-size: 13px; padding: 40px;")
+        self.lbl_empty.setVisible(False)
+        layout.addWidget(self.lbl_empty)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
+
+        self.btn_remove_selected = QPushButton("↩ 移出选中")
+        self.btn_remove_selected.setObjectName("PrimaryBtn")
+        self.btn_remove_selected.clicked.connect(self.remove_selected_chars)
+        btn_layout.addWidget(self.btn_remove_selected)
+
+        self.btn_remove_all = QPushButton("↩ 全部移出")
+        self.btn_remove_all.setObjectName("DangerBtn")
+        self.btn_remove_all.setStyleSheet("""
+            QPushButton {
+                background-color: #7b1fa2; color: #ffffff; font-weight: bold;
+                border: 1px solid #9c27b0; border-radius: 4px; padding: 5px 12px;
+            }
+            QPushButton:hover { background-color: #8e24aa; }
+        """)
+        self.btn_remove_all.clicked.connect(self.remove_all_chars)
+        btn_layout.addWidget(self.btn_remove_all)
+
+        btn_layout.addStretch()
+
+        btn_close = QPushButton("关闭")
+        btn_close.clicked.connect(self.accept)
+        btn_layout.addWidget(btn_close)
+
+        layout.addLayout(btn_layout)
+
+    def load_bench_list(self):
+        self.list_bench.clear()
+        bench_mgr = getattr(self.mgr, "bench_mgr", None)
+        benched_names = bench_mgr.get_all() if bench_mgr else []
+
+        self.setWindowTitle(f"🪑 待选区管理 ({len(benched_names)}人)")
+        if benched_names:
+            self.list_bench.setVisible(True)
+            self.lbl_empty.setVisible(False)
+            self.btn_remove_selected.setEnabled(True)
+            self.btn_remove_all.setEnabled(True)
+            for name in benched_names:
+                item = QListWidgetItem(f"🪑 {name}")
+                item.setData(Qt.ItemDataRole.UserRole, name)
+                self.list_bench.addItem(item)
+        else:
+            self.list_bench.setVisible(False)
+            self.lbl_empty.setVisible(True)
+            self.btn_remove_selected.setEnabled(False)
+            self.btn_remove_all.setEnabled(False)
+
+    def remove_selected_chars(self):
+        selected_items = self.list_bench.selectedItems()
+        if not selected_items:
+            QMessageBox.information(self, "提示", "请先在列表中选中要移出的角色。")
+            return
+
+        for item in selected_items:
+            name = item.data(Qt.ItemDataRole.UserRole) or item.text().replace("🪑 ", "").strip()
+            self.mgr.set_char_benched(name, False)
+
+        if self.parent() and hasattr(self.parent(), "apply_filters"):
+            self.parent().apply_filters()
+            if hasattr(self.parent(), "statusBar"):
+                self.parent().statusBar().showMessage(f"已将 {len(selected_items)} 个角色移出待选区", 4000)
+
+        self.load_bench_list()
+
+    def remove_all_chars(self):
+        bench_mgr = getattr(self.mgr, "bench_mgr", None)
+        benched_names = bench_mgr.get_all() if bench_mgr else []
+        if not benched_names:
+            return
+
+        reply = QMessageBox.question(
+            self, "全部移出确认",
+            f"确定要将所有 {len(benched_names)} 个角色移出待选区吗？\n\n移出后这些角色将重新参与所有汇总统计。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            for name in benched_names:
+                self.mgr.set_char_benched(name, False)
+            if self.parent() and hasattr(self.parent(), "apply_filters"):
+                self.parent().apply_filters()
+                if hasattr(self.parent(), "statusBar"):
+                    self.parent().statusBar().showMessage("已将所有角色移出待选区", 4000)
+            self.load_bench_list()
 
 
 def load_skill_descriptions():
@@ -3380,6 +3524,38 @@ class MainWindow(QMainWindow):
         self.chk_stale_only.stateChanged.connect(self.apply_filters)
         tb_row2.addWidget(self.chk_stale_only)
 
+        tb_row2.addSpacing(15)
+
+        # Show Bench Filter (Checkbox)
+        self.chk_show_bench = QCheckBox("显示待选区角色")
+        self.chk_show_bench.setStyleSheet("color: #e0e0e0; font-size: 12px;")
+        self.chk_show_bench.setToolTip("勾选后在表格中一并显示待选区角色（灰色斜体标记），但它们仍不计入汇总统计")
+        self.chk_show_bench.setChecked(False)
+        self.chk_show_bench.stateChanged.connect(self.apply_filters)
+        tb_row2.addWidget(self.chk_show_bench)
+
+        self.btn_bench_count = QPushButton("🪑 待选区 0 人")
+        self.btn_bench_count.setObjectName("LinkBtn")
+        self.btn_bench_count.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: none;
+                color: #8888aa;
+                font-size: 12px;
+                padding: 2px 6px;
+                text-decoration: underline;
+                cursor: pointer;
+            }
+            QPushButton:hover {
+                color: #b0bec5;
+            }
+        """)
+        self.btn_bench_count.setToolTip("点击打开待选区管理面板")
+        self.btn_bench_count.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_bench_count.setVisible(False)
+        self.btn_bench_count.clicked.connect(self.open_bench_manager_dialog)
+        tb_row2.addWidget(self.btn_bench_count)
+
         tb_row2.addStretch()
         tb_main_layout.addLayout(tb_row2)
 
@@ -3411,7 +3587,7 @@ class MainWindow(QMainWindow):
         self.chk_show_legacy_cd = QCheckBox("显示过气副本")
         self.chk_show_legacy_cd.setChecked(False)
         self.chk_show_legacy_cd.setStyleSheet("color: #e0e0e0; font-size: 12px;")
-        self.chk_show_legacy_cd.stateChanged.connect(lambda: self.update_cd_table(getattr(self, "_current_cd_chars", self.all_chars)))
+        self.chk_show_legacy_cd.stateChanged.connect(self.apply_filters)
         cd_bar.addWidget(self.chk_show_legacy_cd)
 
         cd_bar.addStretch()
@@ -3489,6 +3665,8 @@ class MainWindow(QMainWindow):
         self.table_roles.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table_roles.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self.table_roles.setSortingEnabled(True)
+        self.table_roles.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table_roles.customContextMenuRequested.connect(lambda pos: self.show_char_context_menu(self.table_roles, pos))
         self.table_roles.itemDoubleClicked.connect(self.on_role_double_clicked)
         self.table_roles.itemSelectionChanged.connect(self.on_roles_selection_changed)
 
@@ -3513,8 +3691,73 @@ class MainWindow(QMainWindow):
         self.table_cd.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table_cd.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self.table_cd.setSortingEnabled(True)
+        self.table_cd.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table_cd.customContextMenuRequested.connect(lambda pos: self.show_char_context_menu(self.table_cd, pos))
         self.table_cd.itemDoubleClicked.connect(self.on_role_double_clicked)
         self.table_cd.itemSelectionChanged.connect(self.on_cd_selection_changed)
+
+    def show_char_context_menu(self, table, pos):
+        item_at_pos = table.itemAt(pos)
+        if item_at_pos:
+            r = item_at_pos.row()
+            first_it = table.item(r, 0)
+            if first_it and not first_it.isSelected():
+                table.clearSelection()
+                table.selectRow(r)
+
+        selected_names = list(self.get_table_selected_char_names(table))
+        if not selected_names:
+            return
+
+        bench_mgr = getattr(self.mgr, "bench_mgr", None)
+        benched_in_sel = [name for name in selected_names if bench_mgr and bench_mgr.is_benched(name)]
+        active_in_sel = [name for name in selected_names if not (bench_mgr and bench_mgr.is_benched(name))]
+
+        menu = QMenu(self)
+        menu.setStyleSheet(DARK_QSS)
+
+        act_add_bench = None
+        act_rem_bench = None
+
+        if active_in_sel:
+            if len(active_in_sel) == 1:
+                act_add_bench = menu.addAction("🪑 移入待选区（不参与统计）")
+            else:
+                act_add_bench = menu.addAction(f"🪑 将选中的 {len(active_in_sel)} 个角色移入待选区")
+
+        if benched_in_sel:
+            if len(benched_in_sel) == 1:
+                act_rem_bench = menu.addAction("↩ 移出待选区")
+            else:
+                act_rem_bench = menu.addAction(f"↩ 将选中的 {len(benched_in_sel)} 个角色移出待选区")
+
+        if not menu.actions():
+            return
+
+        action = menu.exec(table.viewport().mapToGlobal(pos))
+        if action == act_add_bench and active_in_sel:
+            names_str = "、".join(active_in_sel[:10]) + ("..." if len(active_in_sel) > 10 else "")
+            reply = QMessageBox.question(
+                self, "移入待选区确认",
+                f"确定要将以下 {len(active_in_sel)} 个角色移入待选区吗？\n\n【{names_str}】\n\n移入后这些角色将不计入任何汇总统计。",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                for name in active_in_sel:
+                    self.mgr.set_char_benched(name, True)
+                self.apply_filters()
+                self.statusBar().showMessage(f"已将 {len(active_in_sel)} 个角色移入待选区", 4000)
+
+        elif action == act_rem_bench and benched_in_sel:
+            for name in benched_in_sel:
+                self.mgr.set_char_benched(name, False)
+            self.apply_filters()
+            self.statusBar().showMessage(f"已将 {len(benched_in_sel)} 个角色移出待选区", 4000)
+
+    def open_bench_manager_dialog(self):
+        dlg = BenchManagerDialog(self.mgr, parent=self)
+        dlg.exec()
 
     def get_table_selected_char_names(self, table):
         selected_names = set()
@@ -3522,7 +3765,10 @@ class MainWindow(QMainWindow):
             r = item.row()
             it = table.item(r, 0)
             if it and it.text().strip():
-                selected_names.add(it.text().strip())
+                t = it.text().strip()
+                if t.startswith("🪑 "):
+                    t = t[2:].strip()
+                selected_names.add(t)
         return selected_names
 
     def select_chars_in_table(self, table, target_names):
@@ -3540,10 +3786,14 @@ class MainWindow(QMainWindow):
         
         for row in range(table.rowCount()):
             name_item = table.item(row, 0)
-            if name_item and name_item.text().strip() in target_names:
-                first_index = table.model().index(row, 0)
-                last_index = table.model().index(row, table.columnCount() - 1)
-                selection.select(first_index, last_index)
+            if name_item:
+                raw_t = name_item.text().strip()
+                if raw_t.startswith("🪑 "):
+                    raw_t = raw_t[2:].strip()
+                if raw_t in target_names:
+                    first_index = table.model().index(row, 0)
+                    last_index = table.model().index(row, table.columnCount() - 1)
+                    selection.select(first_index, last_index)
 
         selection_model.select(selection, QItemSelectionModel.SelectionFlag.Select)
         table.blockSignals(False)
@@ -3583,7 +3833,9 @@ class MainWindow(QMainWindow):
         name_item = table.item(row, 0)
         if not name_item:
             return
-        char_name = name_item.text()
+        char_name = name_item.text().strip()
+        if char_name.startswith("🪑 "):
+            char_name = char_name[2:].strip()
 
         header_item = table.horizontalHeaderItem(col)
         header_text = header_item.text() if header_item else ""
@@ -3637,7 +3889,8 @@ class MainWindow(QMainWindow):
             self.lbl_status.setStyleSheet("color: #4caf50; font-weight: bold;")
 
     def open_baizhan_skills_dialog(self, default_char_name=None):
-        dlg = BaizhanSkillsDialog(self.mgr, self.all_chars, default_char_name=default_char_name, parent=self)
+        active_chars = filter_out_benched(self.all_chars)
+        dlg = BaizhanSkillsDialog(self.mgr, active_chars, default_char_name=default_char_name, parent=self)
         dlg.exec()
 
     def edit_huanjiang_points(self, char_name, item):
@@ -3780,7 +4033,7 @@ class MainWindow(QMainWindow):
                 return
             for r in range(self.table_cd.rowCount()):
                 it_n = self.table_cd.item(r, 0)
-                if it_n and it_n.text() == char_name:
+                if it_n and (it_n.text() == char_name or it_n.text() == f"🪑 {char_name}"):
                     target_item = self.table_cd.item(r, col)
                     if target_item and target_item.text() != text:
                         target_item.setText(text)
@@ -3794,7 +4047,7 @@ class MainWindow(QMainWindow):
             col = 12 if is_weekly else 11
             for r in range(self.table_roles.rowCount()):
                 it_n = self.table_roles.item(r, 0)
-                if it_n and it_n.text() == char_name:
+                if it_n and (it_n.text() == char_name or it_n.text() == f"🪑 {char_name}"):
                     target_item = self.table_roles.item(r, col)
                     if target_item and target_item.text() != text:
                         target_item.setText(text)
@@ -3845,9 +4098,22 @@ class MainWindow(QMainWindow):
         search_kw = self.input_search.text().lower().strip()
         min_equip_w = self.spin_equip_score.value() if self.chk_equip_score.isChecked() else 0
         stale_only = self.chk_stale_only.isChecked() if hasattr(self, "chk_stale_only") else False
+        show_bench = self.chk_show_bench.isChecked() if hasattr(self, "chk_show_bench") else False
 
-        filtered = []
+        bench_mgr = getattr(self.mgr, "bench_mgr", None)
+        bench_count = bench_mgr.count() if bench_mgr else sum(1 for c in self.all_chars if c.get("is_benched", False))
+        if hasattr(self, "btn_bench_count"):
+            if bench_count > 0:
+                self.btn_bench_count.setText(f"🪑 待选区 {bench_count} 人")
+                self.btn_bench_count.setVisible(True)
+            else:
+                self.btn_bench_count.setVisible(False)
+
+        filtered_for_display = []
+        filtered_for_stats = []
+
         for c in self.all_chars:
+            is_benched = c.get("is_benched", False)
             if stale_only and not c.get("is_stale", False):
                 continue
             srv = f"{c.get('region', '')}/{c.get('server', '')}".strip("/")
@@ -3863,10 +4129,14 @@ class MainWindow(QMainWindow):
                 if score < min_equip_w * 10000:
                     continue
 
-            filtered.append(c)
+            if not is_benched:
+                filtered_for_stats.append(c)
+                filtered_for_display.append(c)
+            elif show_bench:
+                filtered_for_display.append(c)
 
-        self.update_roles_table(filtered)
-        self.update_cd_table(filtered)
+        self.update_roles_table(filtered_for_display)
+        self.update_cd_table(filtered_for_display, stats_chars=filtered_for_stats)
 
         target_names = getattr(self, "last_selected_char_names", set())
         if target_names:
@@ -3884,6 +4154,8 @@ class MainWindow(QMainWindow):
             notes_mgr = getattr(self.mgr, "notes_mgr", None)
             for i, c in enumerate(chars):
                 cname = c.get("name", "")
+                is_benched = c.get("is_benched", False)
+                disp_name = f"🪑 {cname}" if is_benched else cname
                 bz_api = c.get("baizhan_api", {}) or {}
                 stamina = bz_api.get("skillStamina")
                 energy = bz_api.get("skillEnergy")
@@ -3902,7 +4174,7 @@ class MainWindow(QMainWindow):
                 it_w.setToolTip("💡 双击可编辑每周重置备注（每周一 12:00 自动重置，保存时含二次确认防误触）")
 
                 items = [
-                    QTableWidgetItem(cname),
+                    QTableWidgetItem(disp_name),
                     QTableWidgetItem(srv),
                     QTableWidgetItem(c.get("force_name", "")),
                     NumericTableWidgetItem(c.get("level", 0), int(c.get("level", 0))),
@@ -3919,6 +4191,11 @@ class MainWindow(QMainWindow):
                 for j, item in enumerate(items):
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    if is_benched:
+                        item.setForeground(QColor("#777788"))
+                        f = item.font()
+                        f.setItalic(True)
+                        item.setFont(f)
                     self.table_roles.setItem(i, j, item)
         finally:
             self.table_roles.setSortingEnabled(True)
@@ -3936,10 +4213,12 @@ class MainWindow(QMainWindow):
         self.btn_refresh_cal.setEnabled(True)
         self.btn_refresh_cal.setText("⟳ 强制在线刷新活动日历")
         self.statusBar().showMessage("武林通鉴活动日历同步完成！", 4000)
-        self.update_cd_table(self.all_chars)
+        self.apply_filters()
 
-    def update_cd_table(self, chars):
-        self._current_cd_chars = chars
+    def update_cd_table(self, chars, stats_chars=None):
+        if stats_chars is None:
+            stats_chars = [c for c in chars if not c.get("is_benched", False)]
+        self._current_cd_chars = stats_chars
         self._updating_tables = True
         try:
             self.table_cd.setSortingEnabled(False)
@@ -3985,7 +4264,7 @@ class MainWindow(QMainWindow):
             visible_dids, hidden_dids = filter_cd_dungeon_ids(sorted_dids, DUNGEON_NAMES, raid_names, show_legacy=show_legacy)
 
             self._hidden_cd_count = len(hidden_dids)
-            self._update_cd_summary(chars, hidden_count=self._hidden_cd_count)
+            self._update_cd_summary(stats_chars, hidden_count=self._hidden_cd_count)
 
             dungeon_headers = [DUNGEON_NAMES.get(did, f"副本{did}") for did in visible_dids]
 
@@ -4024,11 +4303,13 @@ class MainWindow(QMainWindow):
             for i, c in enumerate(chars):
                 srv = f"{c.get('region', '')}/{c.get('server', '')}".strip("/")
                 name = c.get("name", "")
+                is_benched = c.get("is_benched", False)
+                disp_name = f"🪑 {name}" if is_benched else name
                 dungeons = c.get("dungeon_cd", {})
                 prog = c.get("baizhan_progress", {})
                 is_stale = c.get("is_stale", False)
 
-                name_item = QTableWidgetItem(name)
+                name_item = QTableWidgetItem(disp_name)
                 
                 # 角色名 tooltip
                 tt_lines = []
@@ -4155,6 +4436,13 @@ class MainWindow(QMainWindow):
                 if is_stale:
                     for item in items:
                         item.setForeground(QColor("#78909c"))
+
+                if is_benched:
+                    for item in items:
+                        item.setForeground(QColor("#777788"))
+                        f = item.font()
+                        f.setItalic(True)
+                        item.setFont(f)
 
                 for j, item in enumerate(items):
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -4572,7 +4860,10 @@ class MainWindow(QMainWindow):
     def export_json(self):
         try:
             p = self.mgr.export_json()
-            QMessageBox.information(self, "导出成功", f"JSON 文件已导出至:\n{p}")
+            bench_mgr = getattr(self.mgr, "bench_mgr", None)
+            bench_cnt = bench_mgr.count() if bench_mgr else 0
+            tip_extra = f"\n（已排除待选区 {bench_cnt} 个角色）" if bench_cnt > 0 else ""
+            QMessageBox.information(self, "导出成功", f"JSON 文件已导出至:\n{p}{tip_extra}")
         except Exception as e:
             QMessageBox.critical(self, "错误", f"导出 JSON 失败: {e}")
 
@@ -4581,10 +4872,11 @@ class MainWindow(QMainWindow):
         if not path:
             return
         try:
+            active_chars = self.mgr.get_active_characters().values()
             with open(path, "w", encoding="utf-8-sig", newline="") as f:
                 w = csv.writer(f)
                 w.writerow(["角色", "区服", "门派", "等级", "装备分", "资历", "金币", "休闲点", "侠义", "百战精耐", "本地数据时间"])
-                for c in self.mgr.characters.values():
+                for c in active_chars:
                     bz_api = c.get("baizhan_api", {}) or {}
                     stamina = bz_api.get("skillStamina")
                     energy = bz_api.get("skillEnergy")
@@ -4602,7 +4894,10 @@ class MainWindow(QMainWindow):
                         bz_jn_str,
                         c.get("last_update", "未知")
                     ])
-            QMessageBox.information(self, "导出成功", f"CSV 文件已导出至:\n{path}")
+            bench_mgr = getattr(self.mgr, "bench_mgr", None)
+            bench_cnt = bench_mgr.count() if bench_mgr else 0
+            tip_extra = f"\n（已排除待选区 {bench_cnt} 个角色）" if bench_cnt > 0 else ""
+            QMessageBox.information(self, "导出成功", f"CSV 文件已导出至:\n{path}{tip_extra}")
         except Exception as e:
             QMessageBox.critical(self, "错误", f"导出 CSV 失败: {e}")
 
