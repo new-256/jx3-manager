@@ -302,7 +302,10 @@ class NumericTableWidgetItem(QTableWidgetItem):
 
     def __lt__(self, other):
         if isinstance(other, NumericTableWidgetItem):
-            return self.numeric_val < other.numeric_val
+            try:
+                return self.numeric_val < other.numeric_val
+            except TypeError:
+                return str(self.numeric_val) < str(other.numeric_val)
         return super().__lt__(other)
 
 
@@ -1358,6 +1361,256 @@ class CompactSkillsExportWidget(QWidget):
         return card
 
 
+class AllAccountsBaizhanDialog(QDialog):
+    """百战招式全账号总览弹窗"""
+    def __init__(self, mgr, all_chars, parent=None):
+        super().__init__(parent)
+        self.mgr = mgr
+        self.all_chars = all_chars or []
+        self.setWindowTitle("📊 全账号百战技能总览")
+        self.resize(1400, 800)
+        icon = get_app_icon()
+        if not icon.isNull():
+            self.setWindowIcon(icon)
+
+        from bz_core_skills import load_core_skill_categories, get_best_candidate_skill, get_core_skills_config_path
+        self._load_core_skill_categories = load_core_skill_categories
+        self._get_best_candidate_skill = get_best_candidate_skill
+        self._get_core_skills_config_path = get_core_skills_config_path
+        self.categories = self._load_core_skill_categories()
+
+        self.setStyleSheet("""
+            QDialog { background-color: #1e1e2d; color: #ffffff; font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; }
+            QLabel { color: #eee; }
+            QPushButton#PrimaryBtn { background-color: #0d47a1; color: white; font-weight: bold; border-radius: 4px; padding: 6px 14px; }
+            QPushButton#PrimaryBtn:hover { background-color: #1565c0; }
+            QPushButton#GreenBtn { background-color: #2e7d32; color: white; font-weight: bold; border-radius: 4px; padding: 6px 14px; }
+            QPushButton#GreenBtn:hover { background-color: #388e3c; }
+            QTableWidget { background-color: #161622; color: #ffffff; gridline-color: #2d2d3f; border: 1px solid #333345; border-radius: 6px; }
+            QTableWidget::item { padding: 4px 6px; }
+            QTableWidget::item:selected { background-color: #2b3b5c; }
+            QHeaderView::section { background-color: #232336; color: #d0d4dc; font-weight: bold; border: 1px solid #333345; padding: 6px 4px; }
+            QScrollBar:vertical { background: #161622; width: 10px; }
+            QScrollBar::handle:vertical { background: #3b3b54; border-radius: 5px; }
+            QScrollBar:horizontal { background: #161622; height: 10px; }
+            QScrollBar::handle:horizontal { background: #3b3b54; border-radius: 5px; }
+        """)
+
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        # 顶部工具栏
+        top_bar = QHBoxLayout()
+        top_bar.setSpacing(12)
+
+        sorted_chars = sorted(self.all_chars, key=lambda c: c.get("name", ""))
+        total_count = len(sorted_chars)
+        has_bz_count = sum(
+            1 for c in sorted_chars
+            if c.get("baizhan_api") and isinstance(c.get("baizhan_api"), dict) and "error" not in c.get("baizhan_api") and c.get("baizhan_api").get("skillList")
+        )
+
+        self.lbl_stats = QLabel(f"共 <b>{total_count}</b> 个角色 | 有百战数据 <b>{has_bz_count}</b> 个")
+        self.lbl_stats.setStyleSheet("font-size: 14px; color: #3b8ed0;")
+        top_bar.addWidget(self.lbl_stats)
+
+        top_bar.addStretch()
+
+        self.btn_export_csv = QPushButton("⬇ 导出 CSV")
+        self.btn_export_csv.setObjectName("GreenBtn")
+        self.btn_export_csv.setToolTip("导出当前全账号百战总览表格为 CSV 文件")
+        self.btn_export_csv.clicked.connect(self.export_to_csv)
+        top_bar.addWidget(self.btn_export_csv)
+
+        self.btn_open_config = QPushButton("📂 打开分类配置")
+        self.btn_open_config.setObjectName("PrimaryBtn")
+        self.btn_open_config.setToolTip("在文件管理器中打开 data/bz_core_skills.json 所在目录")
+        self.btn_open_config.clicked.connect(self.open_config_dir)
+        top_bar.addWidget(self.btn_open_config)
+
+        layout.addLayout(top_bar)
+
+        # 表格配置
+        headers = ["角色", "服务器", "门派", "百战精", "百战耐"] + [
+            f"{c.get('group', '')}·{c.get('window', '')}" for c in self.categories
+        ]
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(len(headers))
+        self.table.setHorizontalHeaderLabels(headers)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setSortingEnabled(False)  # 填充完毕后再开启
+
+        self.populate_table(sorted_chars)
+
+        self.table.setSortingEnabled(True)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.horizontalHeader().setStretchLastSection(True)
+
+        # 初始列宽
+        self.table.setColumnWidth(0, 110)
+        self.table.setColumnWidth(1, 90)
+        self.table.setColumnWidth(2, 80)
+        self.table.setColumnWidth(3, 90)
+        self.table.setColumnWidth(4, 90)
+        for col_idx in range(5, len(headers)):
+            self.table.setColumnWidth(col_idx, 125)
+
+        layout.addWidget(self.table)
+
+        # 底部提示小字
+        lbl_tip = QLabel("💡 技能分类规则基于打击类型（打精/打耐/回复）与冷却时间自动推导，每档展示角色已学最高等级技能。支持在 data/bz_core_skills.json 中自定义候选技能。")
+        lbl_tip.setStyleSheet("font-size: 12px; color: #8888aa; margin-top: 4px;")
+        layout.addWidget(lbl_tip)
+
+    def populate_table(self, sorted_chars):
+        self.table.setRowCount(len(sorted_chars))
+
+        for row_idx, c in enumerate(sorted_chars):
+            name = c.get("name", "")
+            server = c.get("server", "")
+            sect = c.get("force", c.get("sect", c.get("school", "")))
+            bz_api = c.get("baizhan_api", {})
+
+            has_bz = bool(bz_api and isinstance(bz_api, dict) and "error" not in bz_api and bz_api.get("skillList"))
+
+            # 1. 角色名
+            it_name = QTableWidgetItem(name)
+            it_name.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(row_idx, 0, it_name)
+
+            # 2. 服务器
+            it_srv = QTableWidgetItem(server)
+            it_srv.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(row_idx, 1, it_srv)
+
+            # 3. 门派
+            it_sect = QTableWidgetItem(sect)
+            it_sect.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(row_idx, 2, it_sect)
+
+            # 4. 百战精
+            stamina_val = bz_api.get("skillStamina") if (has_bz and isinstance(bz_api, dict)) else None
+            if stamina_val is not None and isinstance(stamina_val, (int, float)):
+                it_stamina = NumericTableWidgetItem(f"{stamina_val:,}", stamina_val)
+                it_stamina.setForeground(QColor("#ffffff"))
+            else:
+                it_stamina = NumericTableWidgetItem("-", -1)
+                it_stamina.setForeground(QColor("#777777"))
+            it_stamina.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self.table.setItem(row_idx, 3, it_stamina)
+
+            # 5. 百战耐
+            energy_val = bz_api.get("skillEnergy") if (has_bz and isinstance(bz_api, dict)) else None
+            if energy_val is not None and isinstance(energy_val, (int, float)):
+                it_energy = NumericTableWidgetItem(f"{energy_val:,}", energy_val)
+                it_energy.setForeground(QColor("#ffffff"))
+            else:
+                it_energy = NumericTableWidgetItem("-", -1)
+                it_energy.setForeground(QColor("#777777"))
+            it_energy.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self.table.setItem(row_idx, 4, it_energy)
+
+            # 6~12. 技能列
+            skill_list = bz_api.get("skillList", []) if has_bz else []
+
+            for col_offset, cat in enumerate(self.categories):
+                col_idx = 5 + col_offset
+                candidates = cat.get("candidates", [])
+
+                if not has_bz:
+                    it_skill = NumericTableWidgetItem("无数据", -1)
+                    it_skill.setForeground(QColor("#777777"))
+                    it_skill.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    it_skill.setToolTip("该角色暂无本地百战招式数据")
+                    self.table.setItem(row_idx, col_idx, it_skill)
+                    continue
+
+                if not candidates:
+                    it_skill = NumericTableWidgetItem("—", -1)
+                    it_skill.setForeground(QColor("#777777"))
+                    it_skill.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    it_skill.setToolTip("该档位暂无归类技能，可编辑 data/bz_core_skills.json 自定义")
+                    self.table.setItem(row_idx, col_idx, it_skill)
+                    continue
+
+                best_skill, learned_list = self._get_best_candidate_skill(skill_list, candidates)
+
+                if not best_skill:
+                    it_skill = NumericTableWidgetItem("未学习", 0)
+                    it_skill.setForeground(QColor("#888888"))
+                    it_skill.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    cand_text = ", ".join(candidates)
+                    it_skill.setToolTip(f"未学习该档位技能\n\n【该档候选技能 ({len(candidates)}个)】\n{cand_text}")
+                    self.table.setItem(row_idx, col_idx, it_skill)
+                else:
+                    s_name = best_skill.get("szSkillName", "")
+                    lvl = int(best_skill.get("nLevel", 0))
+                    it_skill = NumericTableWidgetItem(f"{s_name} Lv{lvl}", lvl)
+                    it_skill.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+                    # 颜色与字体
+                    if lvl >= 10:
+                        it_skill.setForeground(QColor("#4caf50"))
+                        font = it_skill.font()
+                        font.setBold(True)
+                        it_skill.setFont(font)
+                    elif lvl >= 7:
+                        it_skill.setForeground(QColor("#40a9ff"))
+                    else:
+                        it_skill.setForeground(QColor("#ffa726"))
+
+                    # 构建 Tooltip
+                    learned_lines = [f"{s.get('szSkillName', '')} Lv{s.get('nLevel', 0)}" for s in learned_list]
+                    tooltip_lines = [
+                        f"【已学候选 ({len(learned_list)}个)】",
+                        "\n".join(learned_lines),
+                        f"\n【该档全部候选 ({len(candidates)}个)】",
+                        ", ".join(candidates)
+                    ]
+                    it_skill.setToolTip("\n".join(tooltip_lines))
+                    self.table.setItem(row_idx, col_idx, it_skill)
+
+    def export_to_csv(self):
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "导出百战总览 CSV", "baizhan_overview.csv", "CSV Files (*.csv)"
+        )
+        if not filename:
+            return
+
+        try:
+            with open(filename, "w", newline="", encoding="utf-8-sig") as f:
+                writer = csv.writer(f)
+                headers = [self.table.horizontalHeaderItem(col).text() for col in range(self.table.columnCount())]
+                writer.writerow(headers)
+
+                for row in range(self.table.rowCount()):
+                    row_data = []
+                    for col in range(self.table.columnCount()):
+                        item = self.table.item(row, col)
+                        row_data.append(item.text() if item else "")
+                    writer.writerow(row_data)
+
+            QMessageBox.information(self, "导出成功", f"全账号百战总览已成功导出至:\n{filename}")
+        except Exception as e:
+            QMessageBox.critical(self, "导出失败", f"导出 CSV 遇到错误:\n{str(e)}")
+
+    def open_config_dir(self):
+        cfg_path = self._get_core_skills_config_path()
+        cfg_dir = os.path.dirname(os.path.abspath(cfg_path))
+        if os.path.exists(cfg_dir):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(cfg_dir))
+        else:
+            QMessageBox.warning(self, "提示", f"配置目录不存在:\n{cfg_dir}")
+
+
 class BaizhanSkillsDialog(QDialog):
     """百战招式面板独立弹窗"""
     def __init__(self, mgr, all_chars, default_char_name=None, parent=None):
@@ -1406,6 +1659,12 @@ class BaizhanSkillsDialog(QDialog):
         self.lbl_bz_char.setStyleSheet("font-size: 13px; font-weight: bold; color: #3b8ed0;")
         header_bar.addWidget(self.lbl_bz_char)
         header_bar.addStretch()
+
+        self.btn_all_overview = QPushButton("📊 全账号总览")
+        self.btn_all_overview.setObjectName("PrimaryBtn")
+        self.btn_all_overview.setToolTip("以表格展示全部角色的核心打精/打耐/回复技能等级")
+        self.btn_all_overview.clicked.connect(self.open_all_accounts_overview)
+        header_bar.addWidget(self.btn_all_overview)
 
         self.btn_refresh_bz_online = QPushButton("⟳ 强制在线刷新百战数据")
         self.btn_refresh_bz_online.setObjectName("PrimaryBtn")
@@ -2278,6 +2537,11 @@ class BaizhanSkillsDialog(QDialog):
 
             gb_layout.addLayout(grid)
             self.bz_layout.addWidget(gbox)
+
+    def open_all_accounts_overview(self):
+        """打开全账号百战技能总览弹窗"""
+        dlg = AllAccountsBaizhanDialog(self.mgr, self.all_chars, parent=self)
+        dlg.exec()
 
 
 def load_skill_descriptions():
