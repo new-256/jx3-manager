@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QComboBox, QLineEdit, QTabWidget, QTableWidget,
     QTableWidgetItem, QHeaderView, QScrollArea, QFrame, QDialog, QMenu,
     QFileDialog, QMessageBox, QToolTip, QGridLayout, QSizePolicy, QCheckBox, QDoubleSpinBox, QGroupBox, QStackedWidget, QInputDialog, QTextEdit,
-    QAbstractItemView, QListWidget, QListWidgetItem, QSpinBox, QSplitter
+    QAbstractItemView, QListWidget, QListWidgetItem, QSpinBox, QSplitter, QAbstractSpinBox
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QSettings, QUrl
 from PyQt6.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QCursor, QBrush, QDesktopServices
@@ -1595,9 +1595,9 @@ class CoreSkillsConfigDialog(QDialog):
         lv_colors_box.setSpacing(4)
         for i in range(3):
             row = []
-            smin = QSpinBox(); smin.setRange(1, 99); smin.setFixedWidth(46)
-            smax = QSpinBox(); smax.setRange(1, 999); smax.setFixedWidth(46)
-            btn = QPushButton(); btn.setFixedSize(30, 22)
+            smin = QSpinBox(); smin.setRange(1, 99); smin.setFixedWidth(58); smin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.PlusMinus)
+            smax = QSpinBox(); smax.setRange(1, 999); smax.setFixedWidth(62); smax.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.PlusMinus)
+            btn = QPushButton(); btn.setFixedSize(34, 22)
             btn.setFlat(True)
             lv_colors_box.addWidget(QLabel("Lv" if i == 0 else ""))
             lv_colors_box.addWidget(smin)
@@ -2355,7 +2355,7 @@ class AllAccountsBaizhanDialog(QDialog):
                     it_skill.setToolTip(f"未学习该档位技能\n\n【该档候选技能 ({len(candidates)}个)】\n{cand_text}")
                     self.table.setItem(row_idx, col_idx, it_skill)
                 else:
-                    lines = [f"{s.get('szSkillName', '')} Lv{int(s.get('nLevel', 0))}" for s in top_skills]
+                    lines = [f"{s.get('szSkillName', '')}" for s in top_skills]
                     text = "\n".join(lines)
                     max_lvl = int(top_skills[0].get("nLevel", 0))
                     it_skill = NumericTableWidgetItem(text, max_lvl)
@@ -2378,7 +2378,7 @@ class AllAccountsBaizhanDialog(QDialog):
                         it_skill.setFont(font)
 
                     # 构建 Tooltip
-                    learned_lines = [f"{s.get('szSkillName', '')} Lv{s.get('nLevel', 0)}" for s in learned_list]
+                    learned_lines = [f"{s.get('szSkillName', '')} Lv{s.get('nLevel', 0)} ★" if s.get('szSkillName') == top_skills[0].get('szSkillName') else f"{s.get('szSkillName', '')} Lv{s.get('nLevel', 0)}" for s in learned_list]
                     tooltip_lines = [
                         f"【已学候选 ({len(learned_list)}个)】",
                         "\n".join(learned_lines),

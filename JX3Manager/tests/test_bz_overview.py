@@ -650,11 +650,11 @@ def test_all_accounts_baizhan_dialog_ui_and_features(qapp, tmp_path):
     assert "\n" in cell_text
     lines = cell_text.split("\n")
     assert len(lines) == 2
-    assert lines[0] == "定波式 Lv8"
-    assert lines[1] == "空穴来风 Lv6"
+    assert lines[0] == "定波式"  # 仅用名字+颜色体现等级
+    assert lines[1] == "空穴来风"
 
     # 检查打耐·1分钟（display_count=1，索引 6）
-    assert dlg.table.item(0, 6).text() == "黑煞落贪狼 Lv10"
+    assert dlg.table.item(0, 6).text() == "黑煞落贪狼"
 
     # 检查顶部工具栏按钮文字
     assert hasattr(dlg, "btn_config")

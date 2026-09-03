@@ -70,6 +70,8 @@ DEFAULT_LEVEL_COLORS: List[Dict[str, Any]] = [
 DEFAULT_DISPLAY_COUNT = 5
 
 _STRIKE_RE = re.compile(r"\[([\d/.]+)\]\s*点(精神打击|耐力打击)")
+# 恢复类： [数值]点气血/生命/精神/耐力/内力（附近含 恢复/回复/治疗 时才算恢复值，排除 消耗[...]点精神 这类消耗）
+_RECOVER_RE = re.compile(r"\[([\d/.]+)\]点(气血|生命值?|精神|耐力|内力)")
 
 
 def get_strike_values(desc_path: Optional[str] = None) -> Dict[str, Dict[str, int]]:
@@ -102,6 +104,51 @@ def get_strike_values(desc_path: Optional[str] = None) -> Dict[str, Dict[str, in
             key = "精神" if kind == "精神打击" else "耐力"
             d = out.setdefault(name, {})
             # 同一招式同类型多次匹配取最大值
+            d[key] = max(d.get(key, 0), full)
+    return out
+
+
+def get_recover_values(desc_path: Optional[str] = None) -> Dict[str, Dict[str, int]]:
+    """
+    从 bz_skill_desc.json 解析各招式满级(数值数组最后一段)的恢复值。
+
+    返回 {招式名: {"回精": 满级回精值, "回耐": 满级回耐值, "气血": 满级气血值, ...}}，
+    只含描述里既有数组又有恢复/回复/治疗语义的段落。用于 回复·核心 档
+    默认按回精+回耐数值排序。
+    """
+    actual = _find_data_file("bz_skill_desc.json", desc_path)
+    out: Dict[str, Dict[str, int]] = {}
+    if not actual or not os.path.exists(actual):
+        return out
+    try:
+        with open(actual, "r", encoding="utf-8") as f:
+            descs = json.load(f)
+    except Exception as e:
+        logger.warning(f"读取 bz_skill_desc.json 恢复值失败: {e}")
+        return out
+    for name, info in descs.items():
+        if not isinstance(info, dict):
+            continue
+        detail = info.get("detail", "") or ""
+        # 每一处 [...]段落 200 字窗口内含 恢复/回复/治疗 才算恢复数值
+        for m in _RECOVER_RE.finditer(detail):
+            vals, kind = m.groups()
+            ws_start = max(0, m.start() - 100)
+            ws_end = min(len(detail), m.end() + 100)
+            window = detail[ws_start:ws_end]
+            if "恢复" not in window and "回复" not in window and "治疗" not in window:
+                continue
+            # 排除形如 消耗[...] 的消耗
+            if detail[max(0, m.start() - 3):m.start()].strip().endswith("消耗"):
+                continue
+            try:
+                full = int(vals.split("/")[-1])
+            except (ValueError, TypeError):
+                continue
+            # kind 归一： 精神=回精， 耐力=回耐
+            key_map = {"精神": "回精", "耐力": "回耐", "气血": "气血", "生命值": "气血", "生命": "气血", "内力": "内力"}
+            key = key_map.get(kind, kind)
+            d = out.setdefault(name, {})
             d[key] = max(d.get(key, 0), full)
     return out
 
@@ -310,9 +357,10 @@ def derive_core_skill_categories(
       - 无调息数据 (None, 网页显示 '-') -> 10S 档（待手动划分）
       - 回复类统一归入 '核心' 档
 
-    候选排序：打精/打耐按描述中满级(数组末段)打击值降序 —— 默认配置即
-    各档满级数值最高的技能排前面，配合 display_count=5 取 Top5；
-    回复类按招式名排序。默认 display_count=5。
+    候选排序（满级数值降序，默认各档 Top5）：
+      - 打精 按满级精神打击值（打精数值）降序
+      - 打耐 按满级耐力打击值（打耐数值）降序
+      - 回复·核心 按满级回精+回耐（气血/内力为辅）降序
 
     覆盖统计：156 个招式中 146 个有明确调息时间，10 个无数据归 10S 档。
     """
@@ -328,6 +376,7 @@ def derive_core_skill_categories(
 
     cds = get_skill_cooldowns()
     strikes = get_strike_values(desc_path=actual_desc_path)
+    recovers = get_recover_values(desc_path=actual_desc_path)
 
     def window_for(name: str) -> str:
         """按 jx3box 调息时间分档，无数据归 10S"""
@@ -346,6 +395,14 @@ def derive_core_skill_categories(
         v = (strikes.get(name) or {}).get(key, 0)
         return v
 
+    def recover_key(name: str):
+        """回复·核心满级回精+回耐（气血/内力为辅）作为排序依据，无数据排最后"""
+        d = recovers.get(name) or {}
+        # 主：回精+回耐；辅：气血（数值特大，用于同类型内区分）
+        main = d.get("回精", 0) + d.get("回耐", 0)
+        aux = d.get("气血", 0) + d.get("内力", 0)
+        return (main, aux)
+
     buckets: Dict[Tuple[str, str], List[str]] = {slot: [] for slot in CORE_CATEGORY_SLOTS}
 
     for name, info in descs.items():
@@ -359,7 +416,9 @@ def derive_core_skill_categories(
             buckets[("打精", "10S")].append(name)  # placeholder, 下面按档位重新分配
         if "耐力打击" in detail:
             buckets[("打耐", "10S")].append(name)
-        if "恢复" in detail and ("气血" in detail or "精神" in detail or "耐力" in detail):
+        # 回复：含 恢复/回复/治疗 且涉及气血或精神/耐力/内力（覆盖 恢复/回复/治疗 三种写法）
+        if (("恢复" in detail or "回复" in detail or "治疗" in detail)
+                and ("气血" in detail or "精神" in detail or "耐力" in detail or "内力" in detail)):
             buckets[("回复", "核心")].append(name)
 
     # 按档位重新分配 打精/打耐；同档内按满级打击值降序（默认取数值最高的前 5 个）
@@ -374,9 +433,8 @@ def derive_core_skill_categories(
         for win in ("10S", "30S", "1分钟"):
             buckets[(grp, win)].sort(key=lambda n: strike_key(grp, n), reverse=True)
 
-    for (grp, win) in buckets:
-        if grp in ("打精", "打耐"):
-            pass  # 已按打击值排序
+    # 回复·核心 按 回精+回耐（气血/内力为辅）降序
+    buckets[("回复", "核心")].sort(key=lambda n: recover_key(n), reverse=True)
 
     category_map = buckets
 
