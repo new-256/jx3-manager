@@ -94,34 +94,35 @@ def get_skill_levels(meta_path: Optional[str] = None) -> Dict[str, int]:
 
 def get_skill_costs(meta_path: Optional[str] = None) -> Dict[str, int]:
     """
-    从 bz_skill_meta.json 解析招式消耗点数 {招式名: 点数}。
+    从 bz_skill_cost.json (jx3box 来源) 读取招式消耗点数 {招式名: 点数}。
 
     消耗点数 = 该招式占用的技能格数量。百战玩法最多 3 个技能槽位，
-    即携带招式的点数合计不能超过 3。实测分布：1点 91个 / 2点 8个 / 3点 3个。
+    即携带招式的点数合计不能超过 3。
 
-    该字段与招式级别（CD 档位）是两个独立维度，用于配置界面的独立筛选。
+    数据来源: https://node.jx3box.com/monster/skills 的 nCost 字段，
+    覆盖全部 156 个百战招式。分布：1点 146 个 / 2点 6 个 / 3点 4 个。
+
+    若 jx3box 文件不存在则回退到 bz_skill_meta.json 的 dbm_cost。
     """
-    actual = _find_data_file("bz_skill_meta.json", meta_path)
-    costs: Dict[str, int] = {}
-    if not actual or not os.path.exists(actual):
-        return costs
-    try:
-        with open(actual, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        skills = data.get("skills", {}) if isinstance(data, dict) else {}
-        for name, info in skills.items():
-            if not isinstance(info, dict):
-                continue
-            cost = info.get("dbm_cost")
-            if cost is None:
-                continue
-            try:
-                costs[name] = int(cost)
-            except (ValueError, TypeError):
-                continue
-    except Exception as e:
-        logger.warning(f"读取 bz_skill_meta.json 消耗点数失败: {e}")
-    return costs
+    for fname in ("bz_skill_cost.json", "bz_skill_meta.json"):
+        actual = _find_data_file(fname, meta_path)
+        if not actual or not os.path.exists(actual):
+            continue
+        try:
+            with open(actual, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if fname == "bz_skill_cost.json":
+                src = data.get("costs", {})
+            else:
+                src = {}
+                for info in (data.get("skills", {}) if isinstance(data, dict) else {}).values():
+                    if isinstance(info, dict) and info.get("dbm_cost") is not None:
+                        src[info["name"]] = int(info["dbm_cost"])
+            return {k: int(v) for k, v in src.items() if v is not None}
+        except Exception as e:
+            logger.warning(f"读取 {fname} 消耗点数失败: {e}")
+            continue
+    return {}
 
 
 def get_verified_cooldowns(

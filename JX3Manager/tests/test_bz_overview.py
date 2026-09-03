@@ -146,8 +146,9 @@ def test_get_skill_levels_parses_dbm_note():
 
 def test_get_skill_costs_parses_dbm_cost():
     """
-    消耗点数解析回归测试：消耗点数 = 招式占用的技能格数。
+    消耗点数回归测试：消耗点数 = 招式占用的技能格数。
     百战玩法最多 3 个技能槽位，携带招式点数合计不能超过 3。
+    数据源为 jx3box (bz_skill_cost.json)，覆盖全部 156 个招式。
     该字段与招式级别是两个独立维度。
     """
     from bz_core_skills import get_skill_costs
@@ -157,16 +158,41 @@ def test_get_skill_costs_parses_dbm_cost():
     # 点数只应为 1/2/3
     assert set(costs.values()) <= {1, 2, 3}
 
+    # jx3box 覆盖全部 156 个招式（本地 dbm_cost 只有 102 个）
+    assert len(costs) == 156
+
     # 已知样例
     assert costs.get("破裂") == 1
     assert costs.get("万蛇骨") == 2
-    assert costs.get("华散曲黑洞") == 3   # 3点3级
+    assert costs.get("华散曲黑洞") == 3
     assert costs.get("五灵加护") == 3
     assert costs.get("龙象般若功") == 3
+    # 机铠原型机 本地 meta 无点数数据，由 jx3box 补齐
+    assert costs.get("机铠原型机") == 3
+
+    # 以 jx3box 为准：这两个招式本地 dbm_note 写的是 2 点，jx3box 为 1 点
+    assert costs.get("血涂风暴") == 1
+    assert costs.get("气刃法") == 1
+
+    # 分布固定：1点 146 / 2点 6 / 3点 4
+    from collections import Counter
+    assert dict(Counter(costs.values())) == {1: 146, 2: 6, 3: 4}
 
     # 点数与级别相互独立：龙象般若功 3点但只有 2级
     from bz_core_skills import get_skill_levels
     assert get_skill_levels().get("龙象般若功") == 2
+
+
+def test_skill_cost_file_is_jx3box_sourced():
+    """消耗点数数据文件应标注 jx3box 来源并覆盖全部招式"""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    fp = os.path.join(root, "data", "bz_skill_cost.json")
+    assert os.path.exists(fp), "缺少 bz_skill_cost.json"
+    with open(fp, encoding="utf-8") as f:
+        data = json.load(f)
+    assert "node.jx3box.com" in data.get("source", "")
+    assert data.get("found") == 156
+    assert len(data.get("costs", {})) == 156
 
 
 def test_cost_filter_in_config_dialog(qapp, tmp_path):
@@ -204,10 +230,12 @@ def test_cost_filter_in_config_dialog(qapp, tmp_path):
     for n in visible_names():
         assert dlg._skill_costs.get(n) == 2
 
-    # 无数据 -> 只剩没有点数的招式
-    dlg.cbo_cost_filter.setCurrentText("无数据")
-    for n in visible_names():
-        assert dlg._skill_costs.get(n) is None
+    # jx3box 数据覆盖全部招式，不再有「无数据」选项
+    opts = [dlg.cbo_cost_filter.itemText(i) for i in range(dlg.cbo_cost_filter.count())]
+    assert opts == ["全部", "1点", "2点", "3点"]
+    assert all(dlg._skill_costs.get(n) is not None for n in
+               (dlg.list_all_skills.item(i).data(Qt.ItemDataRole.UserRole)
+                for i in range(dlg.list_all_skills.count())))
 
     # 点数筛选与搜索词联合生效
     dlg.cbo_cost_filter.setCurrentText("3点")

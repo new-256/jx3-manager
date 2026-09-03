@@ -1602,7 +1602,7 @@ class CoreSkillsConfigDialog(QDialog):
         lbl_cost = QLabel("消耗点数:")
         lbl_cost.setStyleSheet("color: #b0b8c8; font-size: 12px;")
         self.cbo_cost_filter = QComboBox()
-        self.cbo_cost_filter.addItems(["全部", "1点", "2点", "3点", "无数据"])
+        self.cbo_cost_filter.addItems(["全部", "1点", "2点", "3点"])
         self.cbo_cost_filter.currentTextChanged.connect(self.filter_all_skills)
         cost_filter_layout.addWidget(lbl_cost)
         cost_filter_layout.addWidget(self.cbo_cost_filter)
@@ -1710,7 +1710,8 @@ class CoreSkillsConfigDialog(QDialog):
         lbl_data_note = QLabel(
             "ℹ️ 档位按招式级别划分（暂定规则）：1级 → 10S，2级 → 30S，3级 → 1分钟；"
             "无级别标注为「-」，默认归 10S 档可手动划分。\n"
-            "　　消耗点数 = 占用的技能格数，用于筛选。百战最多 3 个技能槽位，携带招式点数合计 ≤3。"
+            "　　消耗点数 = 占用的技能格数（数据来自 jx3box，覆盖全部 156 个招式）。"
+            "百战最多 3 个技能槽位，携带招式点数合计 ≤3。"
             "打击类型（打精/打耐/回复）取自招式描述。"
         )
         lbl_data_note.setStyleSheet("font-size: 11px; color: #8888aa; margin-top: 6px; line-height: 1.5;")
@@ -1744,14 +1745,11 @@ class CoreSkillsConfigDialog(QDialog):
 
             if not hide and cost_sel != "全部":
                 cost = self._skill_costs.get(sname)
-                if cost_sel == "无数据":
-                    hide = cost is not None
-                else:
-                    try:
-                        want = int(cost_sel.rstrip("点"))
-                        hide = (cost != want)
-                    except ValueError:
-                        pass
+                try:
+                    want = int(cost_sel.rstrip("点"))
+                    hide = (cost != want)
+                except ValueError:
+                    pass
 
             item.setHidden(hide)
 
