@@ -1402,13 +1402,15 @@ class CoreSkillsConfigDialog(QDialog):
         for sname in self.all_skills:
             self._skill_meta_cache[sname] = self._get_skill_meta(sname)
 
-        # 招式级别（1级=10S / 2级=30S / 3级=1分钟），用于列表标注与档位推导
+        # 招式级别（1级=10S / 2级=30S / 3级=1分钟）与消耗点数（占用技能格），用于标注与筛选
         try:
-            from bz_core_skills import get_skill_levels, SKILL_LEVEL_WINDOW
+            from bz_core_skills import get_skill_levels, get_skill_costs, SKILL_LEVEL_WINDOW
             self._skill_levels = get_skill_levels()
+            self._skill_costs = get_skill_costs()
             self._level_window = dict(SKILL_LEVEL_WINDOW)
         except Exception:
             self._skill_levels = {}
+            self._skill_costs = {}
             self._level_window = {}
 
         self.current_cat_idx = -1
@@ -1446,26 +1448,28 @@ class CoreSkillsConfigDialog(QDialog):
         self.init_ui()
 
     def _format_skill_label(self, sname: str) -> str:
-        # 冷却数据不可信（仅 8% 正确）不再显示；改标注招式级别（1级=10S / 2级=30S / 3级=1分钟）
         level = self._skill_levels.get(sname)
-        if level is None:
-            return f"{sname}  ·无级别"
-        win = self._level_window.get(level, "")
-        return f"{sname}  ·{level}级{('/' + win) if win else ''}"
+        cost = self._skill_costs.get(sname)
+        lv_str = f"{level}级/{self._level_window.get(level, '')}" if level is not None else "-"
+        cost_str = f" {cost}点" if cost is not None else ""
+        return f"{sname}  ·{lv_str}{cost_str}"
 
     def _get_skill_tooltip(self, sname: str) -> str:
         meta = self._skill_meta_cache.get(sname) or self._get_skill_meta(sname)
         detail = meta.get("detail", "")
         level = self._skill_levels.get(sname)
+        cost = self._skill_costs.get(sname)
+        lines = [f"【{sname}】"]
         if level is not None:
             win = self._level_window.get(level, "")
-            lv_line = f"【招式级别】: {level} 级" + (f"（对应 {win} 档）" if win else "") + "\n"
+            lines.append(f"【招式级别】: {level} 级（对应 {win} 档）")
         else:
-            lv_line = "【招式级别】: 无级别数据（默认归 10S 档，可手动划分）\n"
-        if not detail:
-            return f"【{sname}】\n{lv_line}"
-        short = detail[:200] + ("..." if len(detail) > 200 else "")
-        return f"【{sname}】\n{lv_line}{short}"
+            lines.append("【招式级别】: -（默认归 10S 档，可手动划分）")
+        if cost is not None:
+            lines.append(f"【消耗点数】: {cost} 点（占用 {cost} 个技能格）")
+        if detail:
+            lines.append(detail[:200] + ("..." if len(detail) > 200 else ""))
+        return "\n".join(lines)
 
     def init_ui(self):
         main_layout = QVBoxLayout(self)
@@ -1592,6 +1596,19 @@ class CoreSkillsConfigDialog(QDialog):
         self.txt_skill_search.textChanged.connect(self.filter_all_skills)
         all_skills_box.addWidget(self.txt_skill_search)
 
+        # 消耗点数筛选器
+        cost_filter_layout = QHBoxLayout()
+        cost_filter_layout.setSpacing(6)
+        lbl_cost = QLabel("消耗点数:")
+        lbl_cost.setStyleSheet("color: #b0b8c8; font-size: 12px;")
+        self.cbo_cost_filter = QComboBox()
+        self.cbo_cost_filter.addItems(["全部", "1点", "2点", "3点", "无数据"])
+        self.cbo_cost_filter.currentTextChanged.connect(self.filter_all_skills)
+        cost_filter_layout.addWidget(lbl_cost)
+        cost_filter_layout.addWidget(self.cbo_cost_filter)
+        cost_filter_layout.addStretch()
+        all_skills_box.addLayout(cost_filter_layout)
+
         self.list_all_skills = QListWidget()
         self.list_all_skills.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.list_all_skills.itemDoubleClicked.connect(self.on_all_skill_double_clicked)
@@ -1692,9 +1709,9 @@ class CoreSkillsConfigDialog(QDialog):
         # 底部数据说明
         lbl_data_note = QLabel(
             "ℹ️ 档位按招式级别划分（暂定规则）：1级 → 10S，2级 → 30S，3级 → 1分钟；"
-            "打击类型（打精/打耐/回复）取自招式描述。\n"
-            "　　156 个招式中 61 个有级别数据；无级别的默认归 10S 档，可在此手动划分。"
-            "冷却字段因早期按名称匹配通用技能库、仅 12 个可信，已不作为分档依据。"
+            "无级别标注为「-」，默认归 10S 档可手动划分。\n"
+            "　　消耗点数 = 占用的技能格数，用于筛选。百战最多 3 个技能槽位，携带招式点数合计 ≤3。"
+            "打击类型（打精/打耐/回复）取自招式描述。"
         )
         lbl_data_note.setStyleSheet("font-size: 11px; color: #8888aa; margin-top: 6px; line-height: 1.5;")
         lbl_data_note.setWordWrap(True)
@@ -1714,12 +1731,29 @@ class CoreSkillsConfigDialog(QDialog):
             item.setToolTip(self._get_skill_tooltip(sname))
             self.list_all_skills.addItem(item)
 
-    def filter_all_skills(self, text: str):
-        query = text.strip().lower()
+    def filter_all_skills(self, _=None):
+        """按搜索词 + 消耗点数联合筛选左侧技能池"""
+        query = self.txt_skill_search.text().strip().lower()
+        cost_sel = self.cbo_cost_filter.currentText() if hasattr(self, "cbo_cost_filter") else "全部"
+
         for i in range(self.list_all_skills.count()):
             item = self.list_all_skills.item(i)
             sname = item.data(Qt.ItemDataRole.UserRole) or item.text()
-            item.setHidden(bool(query and query not in sname.lower()))
+
+            hide = bool(query and query not in sname.lower())
+
+            if not hide and cost_sel != "全部":
+                cost = self._skill_costs.get(sname)
+                if cost_sel == "无数据":
+                    hide = cost is not None
+                else:
+                    try:
+                        want = int(cost_sel.rstrip("点"))
+                        hide = (cost != want)
+                    except ValueError:
+                        pass
+
+            item.setHidden(hide)
 
     def _cat_item_text(self, cat: dict) -> str:
         grp = cat.get("group", "")

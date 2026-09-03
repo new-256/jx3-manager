@@ -106,6 +106,106 @@ def test_get_skill_levels_parses_dbm_note():
     assert SKILL_LEVEL_WINDOW == {1: "10S", 2: "30S", 3: "1分钟"}
 
 
+def test_get_skill_costs_parses_dbm_cost():
+    """
+    消耗点数解析回归测试：消耗点数 = 招式占用的技能格数。
+    百战玩法最多 3 个技能槽位，携带招式点数合计不能超过 3。
+    该字段与招式级别是两个独立维度。
+    """
+    from bz_core_skills import get_skill_costs
+    costs = get_skill_costs()
+    assert isinstance(costs, dict)
+    assert all(isinstance(v, int) for v in costs.values())
+    # 点数只应为 1/2/3
+    assert set(costs.values()) <= {1, 2, 3}
+
+    # 已知样例
+    assert costs.get("破裂") == 1
+    assert costs.get("万蛇骨") == 2
+    assert costs.get("华散曲黑洞") == 3   # 3点3级
+    assert costs.get("五灵加护") == 3
+    assert costs.get("龙象般若功") == 3
+
+    # 点数与级别相互独立：龙象般若功 3点但只有 2级
+    from bz_core_skills import get_skill_levels
+    assert get_skill_levels().get("龙象般若功") == 2
+
+
+def test_cost_filter_in_config_dialog(qapp, tmp_path):
+    """配置界面的消耗点数筛选器：选择 N点 时只显示该点数的招式"""
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(json.dumps({"categories": [
+        {"group": "打精", "window": "10S", "candidates": [], "enabled": True, "display_count": 1},
+    ]}, ensure_ascii=False), encoding="utf-8")
+
+    dlg = CoreSkillsConfigDialog(config_path=str(cfg))
+    total = dlg.list_all_skills.count()
+    assert total > 0
+
+    def visible_names():
+        return [
+            dlg.list_all_skills.item(i).data(Qt.ItemDataRole.UserRole)
+            for i in range(dlg.list_all_skills.count())
+            if not dlg.list_all_skills.item(i).isHidden()
+        ]
+
+    # 默认全部可见
+    dlg.cbo_cost_filter.setCurrentText("全部")
+    assert len(visible_names()) == total
+
+    # 选 3点 -> 只剩 3 点招式
+    dlg.cbo_cost_filter.setCurrentText("3点")
+    names_3 = visible_names()
+    assert len(names_3) < total
+    for n in names_3:
+        assert dlg._skill_costs.get(n) == 3
+    assert "华散曲黑洞" in names_3
+
+    # 选 2点
+    dlg.cbo_cost_filter.setCurrentText("2点")
+    for n in visible_names():
+        assert dlg._skill_costs.get(n) == 2
+
+    # 无数据 -> 只剩没有点数的招式
+    dlg.cbo_cost_filter.setCurrentText("无数据")
+    for n in visible_names():
+        assert dlg._skill_costs.get(n) is None
+
+    # 点数筛选与搜索词联合生效
+    dlg.cbo_cost_filter.setCurrentText("3点")
+    dlg.txt_skill_search.setText("华散")
+    joint = visible_names()
+    assert joint == ["华散曲黑洞"]
+
+    dlg.deleteLater()
+
+
+def test_no_level_shown_as_dash(qapp, tmp_path):
+    """无级别的招式在列表中应标注为 '-'，不是 '无级别'"""
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(json.dumps({"categories": [
+        {"group": "打精", "window": "10S", "candidates": [], "enabled": True, "display_count": 1},
+    ]}, ensure_ascii=False), encoding="utf-8")
+
+    dlg = CoreSkillsConfigDialog(config_path=str(cfg))
+
+    # 特制金创药无级别 -> 标注 '-'，且不得出现 '无级别' 字样
+    label = dlg._format_skill_label("特制金创药")
+    assert "·-" in label
+    assert "无级别" not in label
+
+    tip = dlg._get_skill_tooltip("特制金创药")
+    assert "【招式级别】: -" in tip
+    assert "无级别数据" not in tip
+
+    # 有级别的仍正常显示
+    assert "3级/1分钟" in dlg._format_skill_label("华散曲黑洞")
+    # 点数也应标注
+    assert "3点" in dlg._format_skill_label("华散曲黑洞")
+
+    dlg.deleteLater()
+
+
 def test_derive_uses_level_as_primary_tier_rule():
     """级别应作为分档主依据：3级招式进 1分钟档，2级进 30S 档，1级进 10S 档"""
     cats = derive_core_skill_categories()

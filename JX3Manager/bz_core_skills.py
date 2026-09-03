@@ -92,6 +92,38 @@ def get_skill_levels(meta_path: Optional[str] = None) -> Dict[str, int]:
     return levels
 
 
+def get_skill_costs(meta_path: Optional[str] = None) -> Dict[str, int]:
+    """
+    从 bz_skill_meta.json 解析招式消耗点数 {招式名: 点数}。
+
+    消耗点数 = 该招式占用的技能格数量。百战玩法最多 3 个技能槽位，
+    即携带招式的点数合计不能超过 3。实测分布：1点 91个 / 2点 8个 / 3点 3个。
+
+    该字段与招式级别（CD 档位）是两个独立维度，用于配置界面的独立筛选。
+    """
+    actual = _find_data_file("bz_skill_meta.json", meta_path)
+    costs: Dict[str, int] = {}
+    if not actual or not os.path.exists(actual):
+        return costs
+    try:
+        with open(actual, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        skills = data.get("skills", {}) if isinstance(data, dict) else {}
+        for name, info in skills.items():
+            if not isinstance(info, dict):
+                continue
+            cost = info.get("dbm_cost")
+            if cost is None:
+                continue
+            try:
+                costs[name] = int(cost)
+            except (ValueError, TypeError):
+                continue
+    except Exception as e:
+        logger.warning(f"读取 bz_skill_meta.json 消耗点数失败: {e}")
+    return costs
+
+
 def get_verified_cooldowns(
     enriched_path: Optional[str] = None,
     skills_path: Optional[str] = None
@@ -158,16 +190,17 @@ def derive_core_skill_categories(
       - 描述含 '耐力打击' -> 打耐
       - 描述含 '恢复' 且 ('气血' or '精神' or '耐力') -> 回复
 
-    档位规则（暂定，按 bz_skill_meta.json 的 dbm_note 中的 N级）：
+    档位规则（按 bz_skill_meta.json 的 dbm_note 中的 N级，级别是权威数据）：
       - 1级 -> 10S  档
       - 2级 -> 30S  档
       - 3级 -> 1分钟 档
-      - 无级别 -> 查经 ID 校验的冷却；冷确信且 >=31 -> 1分钟 / 11-30 -> 30S / 其余 -> 10S
+      - 无级别 -> 10S 档（待用户手动划分）
       - 回复类统一归入 '核心' 档
       - 候选按招式名排序；默认补全 enabled=True, display_count=1
 
-    覆盖统计：levels 覆盖 61 个招式，verified cooldown 覆盖 12 个（其中 2 个与 level 交集），
-    无级别且无可靠冷却的招式归入 10S 档待用户手动划分。
+    覆盖统计：156 个招式中 61 个有级别，95 个无级别（默认归 10S 档）。
+    冷却数据（enriched、验证冷却）因早期按名称匹配通用技能库、仅 8% 可信，
+    已不作为分档依据。
     """
     actual_desc_path = _find_data_file("bz_skill_desc.json", desc_path)
 
@@ -180,19 +213,12 @@ def derive_core_skill_categories(
             logger.warning(f"读取 bz_skill_desc.json 失败: {e}")
 
     lv = get_skill_levels()
-    verified_cd = get_verified_cooldowns(enriched_path=enriched_path)
 
     def window_for(name: str) -> str:
-        """根据级别优先、冷却兜底确定档位"""
+        """按级别分档，无级别归 10S"""
         level = lv.get(name)
         if level is not None:
             return SKILL_LEVEL_WINDOW.get(level, "10S")
-        cd = verified_cd.get(name)
-        if cd is not None:
-            if cd >= 31:
-                return "1分钟"
-            if cd >= 11:
-                return "30S"
         return "10S"
 
     buckets: Dict[Tuple[str, str], List[str]] = {slot: [] for slot in CORE_CATEGORY_SLOTS}
